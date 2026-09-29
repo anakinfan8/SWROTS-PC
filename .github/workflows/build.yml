@@ -16,7 +16,7 @@ jobs:
     # Extra words to reject are in the repository variable HYGIENE_WORDS.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Check files and commits
@@ -28,7 +28,7 @@ jobs:
     needs: hygiene
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Configure (32-bit)
         run: cmake -S . -B build -A Win32
@@ -47,7 +47,7 @@ jobs:
           Compress-Archive -Path "$dir/*" -DestinationPath "package/$name.zip"
           "PACKAGE=$name" >> $env:GITHUB_ENV
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ env.PACKAGE }}
           path: package/${{ env.PACKAGE }}/
