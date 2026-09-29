@@ -1,0 +1,414 @@
+#include "debug/console.h"
+
+#include <windows.h>
+
+#include <algorithm>
+#include <cctype>
+#include <cstdarg>
+#include <cstdio>
+#include <cstring>
+#include <deque>
+#include <mutex>
+
+#include "core/log.h"
+#include "core/patch.h"
+#include "game/game.h"
+
+namespace swrots::debug {
+
+namespace {
+
+constexpr size_t kMaxLines = 4000;
+
+std::mutex g_Lock;
+std::deque<ConsoleLine> g_Lines;
+size_t g_Dropped = 0; // lines removed from the front, so indexes stay stable
+std::vector<std::string> g_Queue;
+bool g_Cleared = false;
+
+void AddLines(LineKind kind, const char* text)
+{
+    // One log line per text line.
+    std::lock_guard<std::mutex> lock(g_Lock);
+    const char* p = text;
+    while (true) {
+        const char* end = p + strcspn(p, "\r\n");
+        if (end != p || *end == '\0')
+            g_Lines.push_back({ kind, std::string(p, end) });
+        if (*end == '\0')
+            break;
+        p = end + 1;
+        if (*p == '\0')
+            break;
+    }
+    while (g_Lines.size() > kMaxLines) {
+        g_Lines.pop_front();
+        ++g_Dropped;
+    }
+}
+
+void Print(LineKind kind, const char* format, ...)
+{
+    char text[1024];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(text, sizeof(text), format, args);
+    va_end(args);
+    AddLines(kind, text);
+}
+
+// --- The engine's print slots (empty stubs in the Xbox build) ------------------------------------
+
+// The engine prints either engine strings (TString: a pointer to the characters)
+// or plain C strings; tell them apart by whether the first bytes read as text.
+const char* TextOf(const void* arg)
+{
+    if (!arg)
+        return nullptr;
+    __try {
+        auto* s = static_cast<const unsigned char*>(arg);
+        bool text = true;
+        for (int i = 0; i < 4 && s[i]; ++i)
+            text &= (s[i] >= 0x20 && s[i] < 0x7F) || s[i] == '\t' || s[i] == '\n' || s[i] == '\r';
+        if (text)
+            return static_cast<const char*>(arg);
+        const char* deref = *static_cast<const char* const*>(arg);
+        volatile char probe = deref ? deref[0] : 0;
+        (void)probe;
+        return deref;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
+}
+
+void EnginePrint(const void* text)
+{
+    const char* s = TextOf(text);
+    if (!s)
+        return;
+    const size_t n = strlen(s);
+    constexpr char kInvalid[] = ": invalid command";
+    const bool error = n >= sizeof(kInvalid) - 1 && strcmp(s + n - (sizeof(kInvalid) - 1), kInvalid) == 0;
+    AddLines(error ? LineKind::Error : LineKind::Output, s);
+}
+
+void __fastcall ConsolePrint(void* self, void* edx, const void* text)
+{
+    (void)self;
+    (void)edx;
+    EnginePrint(text);
+}
+
+// --- Engine objects -----------------------------------------------------------------------------
+
+template <typename Fn> Fn Slot(const void* object, uint32_t offset)
+{
+    return reinterpret_cast<Fn>((*reinterpret_cast<void* const* const*>(object))[offset / 4]);
+}
+
+// The engine's console object; also registers it as the global console the commands use.
+uint8_t* Console()
+{
+    auto* holder = *reinterpret_cast<uint8_t**>(uintptr_t(game::kLaunchSettingsHolder));
+    auto* console = holder ? *reinterpret_cast<uint8_t**>(holder + game::kConsoleInHolder) : nullptr;
+    if (!console || *reinterpret_cast<uint32_t*>(console) != game::kConsoleVtable)
+        return nullptr;
+    auto** global = reinterpret_cast<uint8_t**>(uintptr_t(game::kConsole));
+    if (*global != console) {
+        *global = console;
+        LOG_INFO("Console %p registered as the global console", console);
+    }
+    return console;
+}
+
+struct Entry {
+    std::string name;
+    uint8_t* value;
+};
+
+// The entries of one of the console's hash tables (registry or commands), sorted by name.
+std::vector<Entry> TableEntries(uint8_t* owner)
+{
+    std::vector<Entry> entries;
+    const uint32_t count = *reinterpret_cast<uint32_t*>(owner + 8);
+    if (count == 0 || count > 1024)
+        return entries;
+    auto** buckets = reinterpret_cast<uint8_t**>(owner + game::kHashBuckets);
+    for (uint32_t b = 0; b < count; ++b)
+        for (uint8_t* node = buckets[b]; node; node = *reinterpret_cast<uint8_t**>(node + 8))
+            if (const char* name = *reinterpret_cast<const char**>(node + 4))
+                entries.push_back({ name, *reinterpret_cast<uint8_t**>(node) });
+    std::sort(entries.begin(), entries.end(),
+        [](const Entry& a, const Entry& b) { return _stricmp(a.name.c_str(), b.name.c_str()) < 0; });
+    return entries;
+}
+
+uint8_t* FindVariable(uint8_t* registry, const char* name)
+{
+    return Slot<uint8_t*(__fastcall*)(void*, void*, const char*)>(registry, game::kRegistryFindSlot)(registry, nullptr, name);
+}
+
+// Variables can point at fields of game objects that are gone (e.g. between levels); reading
+// them is guarded, like the console's own display would not be.
+bool SafeType(uint8_t* var, char* out, size_t size)
+{
+    __try {
+        const char* type = Slot<const char*(__fastcall*)(void*, void*)>(var, 0x08)(var, nullptr);
+        strncpy_s(out, size, type ? type : "?", _TRUNCATE);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// The value as the engine formats it (Get into an engine string).
+bool SafeValue(uint8_t* var, char* out, size_t size)
+{
+    __try {
+        uint32_t text = 0; // TString: one pointer
+        reinterpret_cast<void(__fastcall*)(void*, void*)>(uintptr_t(game::kTStringCtor))(&text, nullptr);
+        Slot<void(__fastcall*)(void*, void*, void*)>(var, 0x00)(var, nullptr, &text);
+        strncpy_s(out, size, text ? reinterpret_cast<const char*>(uintptr_t(text)) : "", _TRUNCATE);
+        reinterpret_cast<void(__fastcall*)(void*, void*)>(uintptr_t(game::kTStringDtor))(&text, nullptr);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+std::string VariableType(uint8_t* var)
+{
+    char text[64];
+    return SafeType(var, text, sizeof(text)) ? text : "?";
+}
+
+std::string VariableValue(uint8_t* var)
+{
+    char text[512];
+    return SafeValue(var, text, sizeof(text)) ? text : "(unreadable)";
+}
+
+void SetVariable(uint8_t* registry, const char* name, const char* value)
+{
+    Slot<void(__fastcall*)(void*, void*, const char*, const char*, int)>(registry, game::kRegistrySetSlot)(
+        registry, nullptr, name, value, 1);
+}
+
+// --- Port-side commands ---------------------------------------------------------------------------
+// The Xbox build's help, listvars and set do nothing (their table walks and the registry's set are
+// stubs); these do the same through the parts that work.
+
+std::vector<std::string> Words(const std::string& line)
+{
+    std::vector<std::string> words;
+    size_t i = 0;
+    while (i < line.size()) {
+        while (i < line.size() && isspace(static_cast<unsigned char>(line[i])))
+            ++i;
+        size_t start = i;
+        while (i < line.size() && !isspace(static_cast<unsigned char>(line[i])))
+            ++i;
+        if (i > start)
+            words.push_back(line.substr(start, i - start));
+    }
+    return words;
+}
+
+bool Contains(const std::string& text, const std::string& part)
+{
+    auto it = std::search(text.begin(), text.end(), part.begin(), part.end(),
+        [](char a, char b) { return tolower(static_cast<unsigned char>(a)) == tolower(static_cast<unsigned char>(b)); });
+    return it != text.end();
+}
+
+void Help(uint8_t* console)
+{
+    Print(LineKind::Port, "Console commands (the port):");
+    Print(LineKind::Output, "  set <variable> <value>   (also <variable>=<value>)");
+    Print(LineKind::Output, "  get <variable>");
+    Print(LineKind::Output, "  toggle <variable>        (on/off variables)");
+    Print(LineKind::Output, "  listvars [text]          all variables, or those whose name contains text");
+    Print(LineKind::Output, "  clear                    empties this window");
+    Print(LineKind::Output, "  help");
+    Print(LineKind::Port, "Game commands:");
+    std::string line = " ";
+    for (const Entry& e : TableEntries(console + game::kConsoleCommands)) {
+        if (line.size() + e.name.size() > 90) {
+            Print(LineKind::Output, "%s", line.c_str());
+            line = " ";
+        }
+        line += " " + e.name;
+    }
+    Print(LineKind::Output, "%s", line.c_str());
+}
+
+void ListVars(uint8_t* console, const std::string& filter)
+{
+    int shown = 0;
+    for (const Entry& e : TableEntries(console + game::kConsoleRegistry)) {
+        if (!filter.empty() && !Contains(e.name, filter))
+            continue;
+        Print(LineKind::Output, "%-28s [%s] %s", e.name.c_str(), VariableType(e.value).c_str(),
+            VariableValue(e.value).c_str());
+        ++shown;
+    }
+    Print(LineKind::Port, "%d variable(s)", shown);
+}
+
+void Get(uint8_t* registry, const std::string& name)
+{
+    uint8_t* var = FindVariable(registry, name.c_str());
+    if (!var) {
+        Print(LineKind::Error, "%s: unknown variable", name.c_str());
+        return;
+    }
+    Print(LineKind::Output, "%s [%s] %s", name.c_str(), VariableType(var).c_str(), VariableValue(var).c_str());
+}
+
+void Set(uint8_t* registry, const std::string& name, const std::string& value)
+{
+    uint8_t* var = FindVariable(registry, name.c_str());
+    if (!var) {
+        Print(LineKind::Error, "%s: unknown variable", name.c_str());
+        return;
+    }
+    SetVariable(registry, name.c_str(), value.c_str());
+    Print(LineKind::Output, "%s = %s", name.c_str(), VariableValue(var).c_str());
+}
+
+void Toggle(uint8_t* registry, const std::string& name)
+{
+    uint8_t* var = FindVariable(registry, name.c_str());
+    if (!var || VariableType(var) != "boolean") {
+        Print(LineKind::Error, "%s: not an on/off variable", name.c_str());
+        return;
+    }
+    Set(registry, name, VariableValue(var) == "true" ? "false" : "true");
+}
+
+// Returns false when the line is for the game's own console.
+bool RunPortCommand(uint8_t* console, const std::string& line)
+{
+    std::vector<std::string> words = Words(line);
+    if (words.empty())
+        return true;
+    std::string command = words[0];
+    for (char& c : command)
+        c = char(tolower(static_cast<unsigned char>(c)));
+    uint8_t* registry = console + game::kConsoleRegistry;
+
+    // name=value / name:value, as in vars_xbox.cfg
+    if (words.size() == 1) {
+        size_t sep = words[0].find_first_of("=:");
+        if (sep != std::string::npos && sep > 0) {
+            Print(LineKind::Output, "> %s", line.c_str());
+            Set(registry, words[0].substr(0, sep), words[0].substr(sep + 1));
+            return true;
+        }
+    }
+    if (command == "clear" || command == "cls") {
+        ClearConsole();
+        return true;
+    }
+    if (command != "help" && command != "listvars" && command != "get" && command != "set" && command != "toggle")
+        return false;
+    Print(LineKind::Output, "> %s", line.c_str());
+    if (command == "help") {
+        Help(console);
+    } else if (command == "listvars") {
+        ListVars(console, words.size() > 1 ? words[1] : "");
+    } else if (command == "get") {
+        if (words.size() < 2)
+            Print(LineKind::Error, "get <variable>");
+        else
+            Get(registry, words[1]);
+    } else if (command == "toggle") {
+        if (words.size() < 2)
+            Print(LineKind::Error, "toggle <variable>");
+        else
+            Toggle(registry, words[1]);
+    } else { // set
+        std::string name = words.size() > 1 ? words[1] : "";
+        std::string value = words.size() > 2 ? words[2] : "";
+        size_t sep = name.find_first_of("=:");
+        if (words.size() == 2 && sep != std::string::npos) {
+            value = name.substr(sep + 1);
+            name = name.substr(0, sep);
+        }
+        if (name.empty() || value.empty())
+            Print(LineKind::Error, "set <variable> <value>");
+        else
+            Set(registry, name, value);
+    }
+    return true;
+}
+
+} // namespace
+
+void InstallConsoleHooks()
+{
+    const void* print = reinterpret_cast<const void*>(&ConsolePrint);
+    PatchBytes(game::kConsoleVtable + game::kConsolePrintSlot, &print, 4);
+    PatchBytes(game::kConsoleVtable + game::kConsolePrintTextSlot, &print, 4);
+}
+
+void AddConsoleLine(LineKind kind, const char* text)
+{
+    if (text)
+        AddLines(kind, text);
+}
+
+void QueueConsoleCommand(const std::string& line)
+{
+    std::lock_guard<std::mutex> lock(g_Lock);
+    g_Queue.push_back(line);
+}
+
+void RunQueuedConsoleCommands()
+{
+    std::vector<std::string> queue;
+    {
+        std::lock_guard<std::mutex> lock(g_Lock);
+        queue.swap(g_Queue);
+    }
+    for (const std::string& line : queue) {
+        uint8_t* console = Console();
+        if (!console) {
+            AddLines(LineKind::Port, "The game's console does not exist yet.");
+            continue;
+        }
+        LOG_INFO("Console: %s", line.c_str());
+        if (RunPortCommand(console, line))
+            continue;
+        using ExecuteFn = void(__fastcall*)(void* self, void* edx, const char* line, int echo);
+        Slot<ExecuteFn>(console, game::kConsoleExecuteSlot)(console, nullptr, line.c_str(), 1);
+    }
+}
+
+size_t CopyConsoleLines(size_t first, std::vector<ConsoleLine>& out)
+{
+    std::lock_guard<std::mutex> lock(g_Lock);
+    size_t total = g_Dropped + g_Lines.size();
+    size_t start = first < g_Dropped ? g_Dropped : first;
+    for (size_t i = start; i < total; ++i)
+        out.push_back(g_Lines[i - g_Dropped]);
+    return total;
+}
+
+void ClearConsole()
+{
+    std::lock_guard<std::mutex> lock(g_Lock);
+    g_Dropped += g_Lines.size();
+    g_Lines.clear();
+    g_Cleared = true;
+}
+
+bool ConsoleCleared()
+{
+    std::lock_guard<std::mutex> lock(g_Lock);
+    bool cleared = g_Cleared;
+    g_Cleared = false;
+    return cleared;
+}
+
+} // namespace swrots::debug

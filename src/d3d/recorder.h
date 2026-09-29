@@ -1,0 +1,32 @@
+#pragma once
+// Flight recorder: keeps the last few seconds of frames (a small screenshot of
+// each plus every draw call and its state) and writes them out when the player
+// presses Ctrl+Shift+F10, for diagnosing one-frame glitches.
+
+#include <windows.h>
+#include <d3d9.h>
+
+#include <string>
+
+namespace swrots::d3d {
+
+// Called once at startup ([Debug] FlightRecorder=1 in settings.ini; off by default).
+void ConfigureFlightRecorder(bool enabled, const std::wstring& outputDir);
+
+// Remembers the game code that issued the draw about to be recorded. Call at
+// the top of a replaced draw function with _AddressOfReturnAddress().
+void FlightNoteCaller(void* addressOfReturnAddress);
+// Records the draw being made from the current Xbox state.
+// `indices` lists the vertexCount vertex indices drawn, `firstVertex`..`lastVertex` their range.
+void FlightRecordDraw(DWORD primitive, UINT vertexCount, UINT firstVertex, int vertexMode, const void* vertexData,
+    UINT stride, const uint32_t* indices, UINT lastVertex);
+// Marks the last recorded draw as skipped (not sent to the host device).
+void FlightMarkSkipped();
+// Adds a free-form event to the current frame.
+void FlightNote(const char* fmt, ...);
+// Ends a frame: keeps a thumbnail of the finished back buffer and handles the hotkey.
+void FlightEndFrame(IDirect3DSurface9* backBuffer);
+// Frees GPU resources (device teardown).
+void FlightReleaseResources();
+
+} // namespace swrots::d3d

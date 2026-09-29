@@ -1,0 +1,61 @@
+name: Bug report
+description: Something does not work, crashes, looks or sounds wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please never attach game files (disc images, extracted files or dumps).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: where
+    attributes:
+      label: Where in the game
+      description: Level or menu, and roughly what was going on (e.g. "Mustafar, fighting droids after the second bridge").
+    validations:
+      required: true
+  - type: dropdown
+    id: reproducible
+    attributes:
+      label: Does it happen again?
+      options:
+        - Every time
+        - Sometimes
+        - Only once so far
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log file
+      description: |
+        Drag in `logs\swrots.log` from the game folder. If the game crashed and you started it again since,
+        attach `logs\swrots.previous.log` instead (it keeps the previous run).
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: SWROTS-PC version
+      description: The release (e.g. v0.1.0) or the commit you built.
+    validations:
+      required: true
+  - type: textarea
+    id: system
+    attributes:
+      label: System
+      description: Windows version, graphics card, display resolution and scaling, controller used.
+      placeholder: Windows 11, RTX 3060, 2560x1440 at 125%, DualSense over Bluetooth
+    validations:
+      required: true
+  - type: textarea
+    id: settings
+    attributes:
+      label: Changed settings or mods
+      description: Anything in settings.ini, controls.ini or mods\ that you changed (or "none").

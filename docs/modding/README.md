@@ -1,0 +1,14 @@
+# Modding SWROTS-PC
+
+The PC port loads game files from loose folders, so mods are plain files placed next to the game.
+No PAK rebuilding or disc image editing is needed.
+
+- [Getting started](getting-started.md): the `mods\` folder, modding settings, testing a level directly
+- [Dumping assets](dumping-assets.md): extracting the files a level loads, to use as mod sources
+- [Replacing textures](replacing-textures.md): STX textures and the embedded-name rule
+- [Swapping characters](swapping-characters.md): a character model swap, worked through with Palpatine
+- [How loading works](how-loading-works.md): level PAKs, load order and what the port does to allow overrides
+- [File formats](file-formats.md): what is known about the PAK, STX, MSH formats and the character table
+
+Never redistribute the game's own files. Share mods as the changed files, or better as a
+script or tool that produces them from the user's own copy of the game.

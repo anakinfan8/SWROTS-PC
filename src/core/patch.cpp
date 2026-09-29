@@ -1,0 +1,62 @@
+#include "core/patch.h"
+
+#include <windows.h>
+#include <cstring>
+
+#include "core/log.h"
+
+namespace swrots {
+
+// The whole game image is mapped read/write/execute by the image mapper, so
+// patches are plain writes; only the instruction cache needs flushing.
+void PatchBytes(uint32_t address, const void* bytes, uint32_t length)
+{
+    std::memcpy(reinterpret_cast<void*>(address), bytes, length);
+    FlushInstructionCache(GetCurrentProcess(), reinterpret_cast<void*>(address), length);
+}
+
+void PatchJump(uint32_t address, const void* target)
+{
+    uint8_t code[5] = { 0xE9 };
+    int32_t rel = int32_t(uintptr_t(target) - (address + 5));
+    std::memcpy(code + 1, &rel, 4);
+    PatchBytes(address, code, sizeof(code));
+}
+
+void PatchCall(uint32_t address, const void* target, uint32_t length)
+{
+    uint8_t code[16];
+    if (length < 5 || length > sizeof(code))
+        Fatal("PatchCall: bad length %u at %08X", length, address);
+    code[0] = 0xE8;
+    int32_t rel = int32_t(uintptr_t(target) - (address + 5));
+    std::memcpy(code + 1, &rel, 4);
+    std::memset(code + 5, 0x90, length - 5);
+    PatchBytes(address, code, length);
+}
+
+void PatchNop(uint32_t address, uint32_t length)
+{
+    uint8_t code[64];
+    std::memset(code, 0x90, length);
+    PatchBytes(address, code, length);
+}
+
+uint8_t* AllocStub(uint32_t size)
+{
+    static uint8_t* s_page = nullptr;
+    static uint32_t s_used = 0;
+    static const uint32_t kPage = 0x10000;
+    size = (size + 15) & ~15u;
+    if (!s_page || s_used + size > kPage) {
+        s_page = static_cast<uint8_t*>(VirtualAlloc(nullptr, kPage, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE));
+        s_used = 0;
+        if (!s_page)
+            Fatal("Out of memory allocating code stubs");
+    }
+    uint8_t* p = s_page + s_used;
+    s_used += size;
+    return p;
+}
+
+} // namespace swrots

@@ -1,0 +1,16 @@
+name: Feature request
+description: An idea for the port, its settings, controls or modding.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What would you like, and what would it be good for?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: How other PC ports do it, screenshots, related findings about the game.

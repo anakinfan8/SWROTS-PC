@@ -1,0 +1,268 @@
+#pragma once
+// Xbox Direct3D 8 (XDK 5849) data structures and constants, as laid out in the
+// game's memory. Derived from Cxbx-Reloaded's XbD3D8Types.h (GPL-2.0-or-later,
+// (c) the Cxbx/Cxbx-Reloaded authors); numbering verified against this XBE.
+
+#include <windows.h>
+
+#include <cstdint>
+
+namespace xd3d {
+
+// --- Resources ---------------------------------------------------------------
+
+struct Resource {
+    DWORD Common;
+    DWORD Data; // physical address (| 0x80000000 = CPU address)
+    DWORD Lock;
+};
+
+constexpr DWORD COMMON_REFCOUNT_MASK = 0x0000FFFF;
+constexpr DWORD COMMON_TYPE_MASK = 0x00070000;
+constexpr DWORD COMMON_TYPE_VERTEXBUFFER = 0x00000000;
+constexpr DWORD COMMON_TYPE_INDEXBUFFER = 0x00010000;
+constexpr DWORD COMMON_TYPE_PUSHBUFFER = 0x00020000;
+constexpr DWORD COMMON_TYPE_PALETTE = 0x00030000;
+constexpr DWORD COMMON_TYPE_TEXTURE = 0x00040000;
+constexpr DWORD COMMON_TYPE_SURFACE = 0x00050000;
+constexpr DWORD COMMON_D3DCREATED = 0x01000000;
+constexpr DWORD COMMON_INTREFCOUNT_1 = 1 << 19;
+
+struct PixelContainer : Resource {
+    DWORD Format;
+    DWORD Size; // non-zero only for linear (non-swizzled) formats
+};
+
+struct Surface : PixelContainer {
+    PixelContainer* Parent;
+};
+
+using BaseTexture = PixelContainer;
+using VertexBuffer = Resource;
+using IndexBuffer = Resource;
+using Palette = Resource;
+
+constexpr DWORD FORMAT_CUBEMAP = 0x00000004;
+constexpr DWORD FORMAT_DIMENSION_MASK = 0x000000F0;
+constexpr DWORD FORMAT_DIMENSION_SHIFT = 4;
+constexpr DWORD FORMAT_FORMAT_MASK = 0x0000FF00;
+constexpr DWORD FORMAT_FORMAT_SHIFT = 8;
+constexpr DWORD FORMAT_MIPMAP_MASK = 0x000F0000;
+constexpr DWORD FORMAT_MIPMAP_SHIFT = 16;
+constexpr DWORD FORMAT_USIZE_SHIFT = 20;
+constexpr DWORD FORMAT_VSIZE_SHIFT = 24;
+constexpr DWORD FORMAT_PSIZE_SHIFT = 28;
+
+constexpr DWORD SIZE_WIDTH_MASK = 0x00000FFF;
+constexpr DWORD SIZE_HEIGHT_MASK = 0x00FFF000;
+constexpr DWORD SIZE_HEIGHT_SHIFT = 12;
+constexpr DWORD SIZE_PITCH_MASK = 0xFF000000;
+constexpr DWORD SIZE_PITCH_SHIFT = 24;
+
+constexpr DWORD PALETTE_COMMON_SIZE_SHIFT = 30;
+
+// Xbox D3DFORMAT codes.
+enum Format : DWORD {
+    FMT_L8 = 0x00, FMT_AL8 = 0x01, FMT_A1R5G5B5 = 0x02, FMT_X1R5G5B5 = 0x03, FMT_A4R4G4B4 = 0x04,
+    FMT_R5G6B5 = 0x05, FMT_A8R8G8B8 = 0x06, FMT_X8R8G8B8 = 0x07, FMT_P8 = 0x0B,
+    FMT_DXT1 = 0x0C, FMT_DXT3 = 0x0E, FMT_DXT5 = 0x0F,
+    FMT_LIN_A1R5G5B5 = 0x10, FMT_LIN_R5G6B5 = 0x11, FMT_LIN_A8R8G8B8 = 0x12, FMT_LIN_L8 = 0x13,
+    FMT_LIN_R8B8 = 0x16, FMT_LIN_G8B8 = 0x17, FMT_A8 = 0x19, FMT_A8L8 = 0x1A,
+    FMT_LIN_AL8 = 0x1B, FMT_LIN_X1R5G5B5 = 0x1C, FMT_LIN_A4R4G4B4 = 0x1D, FMT_LIN_X8R8G8B8 = 0x1E,
+    FMT_LIN_A8 = 0x1F, FMT_LIN_A8L8 = 0x20,
+    FMT_YUY2 = 0x24, FMT_UYVY = 0x25,
+    FMT_R6G5B5 = 0x27, FMT_G8B8 = 0x28, FMT_R8B8 = 0x29,
+    FMT_D24S8 = 0x2A, FMT_F24S8 = 0x2B, FMT_D16 = 0x2C, FMT_F16 = 0x2D,
+    FMT_LIN_D24S8 = 0x2E, FMT_LIN_F24S8 = 0x2F, FMT_LIN_D16 = 0x30, FMT_LIN_F16 = 0x31,
+    FMT_L16 = 0x32, FMT_V16U16 = 0x33, FMT_LIN_L16 = 0x35, FMT_LIN_V16U16 = 0x36, FMT_LIN_R6G5B5 = 0x37,
+    FMT_R5G5B5A1 = 0x38, FMT_R4G4B4A4 = 0x39, FMT_A8B8G8R8 = 0x3A, FMT_B8G8R8A8 = 0x3B, FMT_R8G8B8A8 = 0x3C,
+    FMT_LIN_R5G5B5A1 = 0x3D, FMT_LIN_R4G4B4A4 = 0x3E, FMT_LIN_A8B8G8R8 = 0x3F, FMT_LIN_B8G8R8A8 = 0x40,
+    FMT_LIN_R8G8B8A8 = 0x41,
+};
+
+enum ResourceType : DWORD {
+    RTYPE_SURFACE = 1, RTYPE_VOLUME = 2, RTYPE_TEXTURE = 3, RTYPE_VOLUMETEXTURE = 4, RTYPE_CUBETEXTURE = 5,
+    RTYPE_VERTEXBUFFER = 6, RTYPE_INDEXBUFFER = 7, RTYPE_PUSHBUFFER = 8, RTYPE_PALETTE = 9,
+};
+
+enum PrimitiveType : DWORD {
+    PT_POINTLIST = 1, PT_LINELIST = 2, PT_LINELOOP = 3, PT_LINESTRIP = 4, PT_TRIANGLELIST = 5,
+    PT_TRIANGLESTRIP = 6, PT_TRIANGLEFAN = 7, PT_QUADLIST = 8, PT_QUADSTRIP = 9, PT_POLYGON = 10,
+};
+
+// --- Device creation / display ----------------------------------------------
+
+struct DisplayMode {
+    UINT Width;
+    UINT Height;
+    UINT RefreshRate;
+    DWORD Flags;
+    DWORD Format;
+};
+
+constexpr DWORD PRESENTFLAG_WIDESCREEN = 0x10;
+constexpr DWORD PRESENTFLAG_INTERLACED = 0x20;
+constexpr DWORD PRESENTFLAG_PROGRESSIVE = 0x40;
+
+struct PresentParameters {
+    UINT BackBufferWidth;
+    UINT BackBufferHeight;
+    DWORD BackBufferFormat;
+    UINT BackBufferCount;
+    DWORD MultiSampleType;
+    DWORD SwapEffect;
+    HWND hDeviceWindow;
+    BOOL Windowed;
+    BOOL EnableAutoDepthStencil;
+    DWORD AutoDepthStencilFormat;
+    DWORD Flags;
+    UINT FullScreen_RefreshRateInHz;
+    UINT FullScreen_PresentationInterval;
+    Surface* BufferSurfaces[3];
+    Surface* DepthStencilSurface;
+};
+
+struct SurfaceDesc {
+    DWORD Format;
+    DWORD Type;
+    DWORD Usage;
+    UINT Size;
+    DWORD MultiSampleType;
+    UINT Width;
+    UINT Height;
+};
+
+// --- Render states (XDK 5849 numbering) --------------------------------------
+
+enum RenderState : DWORD {
+    RS_PSALPHAINPUTS0 = 0, RS_PSFINALCOMBINERINPUTSABCD = 8, RS_PSFINALCOMBINERINPUTSEFG = 9,
+    RS_PSCONSTANT0_0 = 10, RS_PSCONSTANT1_0 = 18, RS_PSALPHAOUTPUTS0 = 26, RS_PSRGBINPUTS0 = 34,
+    RS_PSCOMPAREMODE = 42, RS_PSFINALCOMBINERCONSTANT0 = 43, RS_PSFINALCOMBINERCONSTANT1 = 44,
+    RS_PSRGBOUTPUTS0 = 45, RS_PSCOMBINERCOUNT = 53, RS_PS_RESERVED = 54, RS_PSDOTMAPPING = 55,
+    RS_PSINPUTTEXTURE = 56,
+    // simple
+    RS_ZFUNC = 57, RS_ALPHAFUNC = 58, RS_ALPHABLENDENABLE = 59, RS_ALPHATESTENABLE = 60, RS_ALPHAREF = 61,
+    RS_SRCBLEND = 62, RS_DESTBLEND = 63, RS_ZWRITEENABLE = 64, RS_DITHERENABLE = 65, RS_SHADEMODE = 66,
+    RS_COLORWRITEENABLE = 67, RS_STENCILZFAIL = 68, RS_STENCILPASS = 69, RS_STENCILFUNC = 70,
+    RS_STENCILREF = 71, RS_STENCILMASK = 72, RS_STENCILWRITEMASK = 73, RS_BLENDOP = 74, RS_BLENDCOLOR = 75,
+    RS_SWATHWIDTH = 76, RS_POLYGONOFFSETZSLOPESCALE = 77, RS_POLYGONOFFSETZOFFSET = 78,
+    RS_POINTOFFSETENABLE = 79, RS_WIREFRAMEOFFSETENABLE = 80, RS_SOLIDOFFSETENABLE = 81,
+    RS_DEPTHCLIPCONTROL = 82, RS_STIPPLEENABLE = 83,
+    // deferred
+    RS_FOGENABLE = 92, RS_FOGTABLEMODE = 93, RS_FOGSTART = 94, RS_FOGEND = 95, RS_FOGDENSITY = 96,
+    RS_RANGEFOGENABLE = 97, RS_WRAP0 = 98, RS_WRAP1 = 99, RS_WRAP2 = 100, RS_WRAP3 = 101, RS_LIGHTING = 102,
+    RS_SPECULARENABLE = 103, RS_LOCALVIEWER = 104, RS_COLORVERTEX = 105,
+    RS_BACKSPECULARMATERIALSOURCE = 106, RS_BACKDIFFUSEMATERIALSOURCE = 107,
+    RS_BACKAMBIENTMATERIALSOURCE = 108, RS_BACKEMISSIVEMATERIALSOURCE = 109,
+    RS_SPECULARMATERIALSOURCE = 110, RS_DIFFUSEMATERIALSOURCE = 111, RS_AMBIENTMATERIALSOURCE = 112,
+    RS_EMISSIVEMATERIALSOURCE = 113, RS_BACKAMBIENT = 114, RS_AMBIENT = 115, RS_POINTSIZE = 116,
+    RS_POINTSIZE_MIN = 117, RS_POINTSPRITEENABLE = 118, RS_POINTSCALEENABLE = 119, RS_POINTSCALE_A = 120,
+    RS_POINTSCALE_B = 121, RS_POINTSCALE_C = 122, RS_POINTSIZE_MAX = 123, RS_PATCHEDGESTYLE = 124,
+    RS_PATCHSEGMENTS = 125, RS_SWAPFILTER = 126, RS_PRESENTATIONINTERVAL = 127,
+    // complex
+    RS_PSTEXTUREMODES = 136, RS_VERTEXBLEND = 137, RS_FOGCOLOR = 138, RS_FILLMODE = 139, RS_BACKFILLMODE = 140,
+    RS_TWOSIDEDLIGHTING = 141, RS_NORMALIZENORMALS = 142, RS_ZENABLE = 143, RS_STENCILENABLE = 144,
+    RS_STENCILFAIL = 145, RS_FRONTFACE = 146, RS_CULLMODE = 147, RS_TEXTUREFACTOR = 148, RS_ZBIAS = 149,
+    RS_LOGICOP = 150, RS_EDGEANTIALIAS = 151, RS_MULTISAMPLEANTIALIAS = 152, RS_MULTISAMPLEMASK = 153,
+    RS_MULTISAMPLEMODE = 154, RS_MULTISAMPLERENDERTARGETMODE = 155, RS_SHADOWFUNC = 156, RS_LINEWIDTH = 157,
+    RS_SAMPLEALPHA = 158, RS_DXT1NOISEENABLE = 159, RS_YUVENABLE = 160, RS_OCCLUSIONCULLENABLE = 161,
+    RS_STENCILCULLENABLE = 162, RS_ROPZCMPALWAYSREAD = 163, RS_ROPZREAD = 164, RS_DONOTCULLUNCOMPRESSED = 165,
+    RS_COUNT = 166,
+};
+
+// Texture stage states (0..21 are "deferred" and live in D3D's global array).
+enum TextureState : DWORD {
+    TSS_ADDRESSU = 0, TSS_ADDRESSV = 1, TSS_ADDRESSW = 2, TSS_MAGFILTER = 3, TSS_MINFILTER = 4,
+    TSS_MIPFILTER = 5, TSS_MIPMAPLODBIAS = 6, TSS_MAXMIPLEVEL = 7, TSS_MAXANISOTROPY = 8,
+    TSS_COLORKEYOP = 9, TSS_COLORSIGN = 10, TSS_ALPHAKILL = 11, TSS_COLOROP = 12, TSS_COLORARG0 = 13,
+    TSS_COLORARG1 = 14, TSS_COLORARG2 = 15, TSS_ALPHAOP = 16, TSS_ALPHAARG0 = 17, TSS_ALPHAARG1 = 18,
+    TSS_ALPHAARG2 = 19, TSS_RESULTARG = 20, TSS_TEXTURETRANSFORMFLAGS = 21,
+    TSS_BUMPENVMAT00 = 22, TSS_BUMPENVMAT01 = 23, TSS_BUMPENVMAT11 = 24, TSS_BUMPENVMAT10 = 25,
+    TSS_BUMPENVLSCALE = 26, TSS_BUMPENVLOFFSET = 27, TSS_TEXCOORDINDEX = 28, TSS_BORDERCOLOR = 29,
+    TSS_COLORKEYCOLOR = 30, TSS_COUNT = 32,
+};
+
+constexpr DWORD CLEAR_ZBUFFER = 0x01;
+constexpr DWORD CLEAR_STENCIL = 0x02;
+constexpr DWORD CLEAR_TARGET_R = 0x10, CLEAR_TARGET_G = 0x20, CLEAR_TARGET_B = 0x40, CLEAR_TARGET_A = 0x80;
+constexpr DWORD CLEAR_TARGET = 0xF0;
+
+enum TransformState : DWORD {
+    TS_VIEW = 0, TS_PROJECTION = 1, TS_TEXTURE0 = 2, TS_WORLD = 6, TS_COUNT = 10,
+};
+
+// --- Vertex shaders ----------------------------------------------------------
+
+struct VertexShaderInput {
+    DWORD StreamIndex;
+    DWORD Offset;
+    DWORD Format; // X_D3DVSDT_* (low byte), 0x02 = none
+    BYTE TessellationType;
+    BYTE TessellationSource;
+    BYTE Padding0;
+    BYTE Padding1;
+};
+
+struct VertexAttributeFormat {
+    VertexShaderInput Slots[16];
+};
+
+struct VertexShader {
+    DWORD RefCount;
+    DWORD Flags;
+    DWORD ProgramSize;
+    DWORD ProgramAndConstantsDwords;
+    BYTE Dimensionality[4];
+    VertexAttributeFormat VertexAttribute;
+    DWORD ProgramAndConstants[136];
+};
+
+constexpr DWORD VERTEXSHADER_FLAG_WRITE = 0x0001;
+constexpr DWORD VERTEXSHADER_FLAG_PASSTHROUGH = 0x0002;
+constexpr DWORD VERTEXSHADER_FLAG_STATE = 0x0008;
+constexpr DWORD VERTEXSHADER_FLAG_PROGRAM = 0x0010;
+
+enum VertexDataType : DWORD {
+    VSDT_FLOAT1 = 0x12, VSDT_FLOAT2 = 0x22, VSDT_FLOAT3 = 0x32, VSDT_FLOAT4 = 0x42, VSDT_D3DCOLOR = 0x40,
+    VSDT_SHORT2 = 0x25, VSDT_SHORT4 = 0x45, VSDT_NORMSHORT1 = 0x11, VSDT_NORMSHORT2 = 0x21,
+    VSDT_NORMSHORT3 = 0x31, VSDT_NORMSHORT4 = 0x41, VSDT_NORMPACKED3 = 0x16, VSDT_SHORT1 = 0x15,
+    VSDT_SHORT3 = 0x35, VSDT_PBYTE1 = 0x14, VSDT_PBYTE2 = 0x24, VSDT_PBYTE3 = 0x34, VSDT_PBYTE4 = 0x44,
+    VSDT_FLOAT2H = 0x72, VSDT_NONE = 0x02,
+};
+
+// Fixed-function vertex register numbers.
+enum VertexRegister : int {
+    VSDE_POSITION = 0, VSDE_BLENDWEIGHT = 1, VSDE_NORMAL = 2, VSDE_DIFFUSE = 3, VSDE_SPECULAR = 4,
+    VSDE_FOG = 5, VSDE_POINTSIZE = 6, VSDE_BACKDIFFUSE = 7, VSDE_BACKSPECULAR = 8, VSDE_TEXCOORD0 = 9,
+};
+
+// --- Pixel shaders -----------------------------------------------------------
+
+struct PixelShaderDef {
+    DWORD PSAlphaInputs[8];
+    DWORD PSFinalCombinerInputsABCD;
+    DWORD PSFinalCombinerInputsEFG;
+    DWORD PSConstant0[8];
+    DWORD PSConstant1[8];
+    DWORD PSAlphaOutputs[8];
+    DWORD PSRGBInputs[8];
+    DWORD PSCompareMode;
+    DWORD PSFinalCombinerConstant0;
+    DWORD PSFinalCombinerConstant1;
+    DWORD PSRGBOutputs[8];
+    DWORD PSCombinerCount;
+    DWORD PSTextureModes;
+    DWORD PSDotMapping;
+    DWORD PSInputTexture;
+    DWORD PSC0Mapping;
+    DWORD PSC1Mapping;
+    DWORD PSFinalCombinerConstants;
+};
+
+struct PixelShader {
+    DWORD RefCount;
+    DWORD D3DOwned;
+    PixelShaderDef* pPSDef;
+};
+
+} // namespace xd3d

@@ -1,0 +1,314 @@
+// Controllers: native replacement for the XDK input library (XPP).
+//
+// Port 1 is always a connected gamepad driven by the keyboard and the first
+// host controller; ports 2-4 follow additional controllers. Host controllers
+// are XInput pads (Xbox and compatible) first, then PlayStation pads.
+// Xbox "Black" and "White" buttons map to the right and left shoulder buttons.
+
+#include <windows.h>
+#include <Xinput.h>
+
+#include <cstring>
+#include <mutex>
+#include <vector>
+
+#include "core/log.h"
+#include "core/window.h"
+#include "input/controls.h"
+#include "input/playstation.h"
+#include "game/game.h"
+#include "xapi/xapi.h"
+
+namespace swrots::input {
+
+// XPP_DEVICE_TYPE, owned by the game (XDEVICE_TYPE_GAMEPAD etc.).
+struct XppDeviceType {
+    ULONG CurrentConnected;
+    ULONG ChangeConnected;
+    ULONG PreviousConnected;
+};
+
+struct XGamepad {
+    WORD wButtons;
+    BYTE bAnalogButtons[8];
+    SHORT sThumbLX, sThumbLY, sThumbRX, sThumbRY;
+};
+
+struct XInputState {
+    DWORD dwPacketNumber;
+    XGamepad Gamepad;
+};
+
+struct XFeedbackHeader {
+    DWORD dwStatus;
+    HANDLE hEvent;
+    BYTE Reserved[58];
+};
+
+struct XRumble {
+    WORD wLeftMotorSpeed;
+    WORD wRightMotorSpeed;
+};
+
+struct XFeedback {
+    XFeedbackHeader Header;
+    XRumble Rumble;
+};
+
+enum : WORD {
+    XB_DPAD_UP = 0x0001, XB_DPAD_DOWN = 0x0002, XB_DPAD_LEFT = 0x0004, XB_DPAD_RIGHT = 0x0008,
+    XB_START = 0x0010, XB_BACK = 0x0020, XB_LEFT_THUMB = 0x0040, XB_RIGHT_THUMB = 0x0080,
+};
+enum { XB_A, XB_B, XB_X, XB_Y, XB_BLACK, XB_WHITE, XB_LEFT_TRIGGER, XB_RIGHT_TRIGGER };
+
+struct Port {
+    bool open = false;
+    DWORD packet = 0;
+    XGamepad last = {};
+};
+
+static std::mutex g_Lock;
+static Port g_Ports[4];
+
+void ResetPortsForReboot()
+{
+    std::lock_guard<std::mutex> lock(g_Lock);
+    for (Port& p : g_Ports)
+        p = Port();
+}
+static XppDeviceType* const g_Gamepad = reinterpret_cast<XppDeviceType*>(uintptr_t(0x00557F14));
+
+// A host controller: an XInput user index, or the n-th PlayStation pad.
+struct Source {
+    bool playStation;
+    DWORD index;
+};
+
+// The connected controllers, refreshed at most twice a second (polling
+// XInput slots that have no controller is slow).
+static std::vector<Source> Sources()
+{
+    static std::mutex lock;
+    static std::vector<Source> cached;
+    static ULONGLONG refreshed = 0;
+    std::lock_guard<std::mutex> g(lock);
+    const ULONGLONG now = GetTickCount64();
+    if (refreshed && now - refreshed < 500)
+        return cached;
+    refreshed = now;
+    std::vector<Source>& sources = cached;
+    sources.clear();
+    for (DWORD i = 0; i < 4; ++i) {
+        XINPUT_STATE s;
+        if (XInputGetState(i, &s) == ERROR_SUCCESS)
+            sources.push_back({ false, i });
+    }
+    for (int i = 0, n = PlayStationPadCount(); i < n; ++i)
+        sources.push_back({ true, DWORD(i) });
+    return sources;
+}
+
+// Connected-port mask: port 0 always, others by host controller presence.
+static ULONG ConnectedMask()
+{
+    ULONG mask = 1;
+    const size_t count = Sources().size();
+    for (DWORD i = 1; i < 4; ++i)
+        if (i < count)
+            mask |= 1u << i;
+    return mask;
+}
+
+static void RefreshConnections()
+{
+    ULONG now = ConnectedMask();
+    if (now != g_Gamepad->CurrentConnected) {
+        g_Gamepad->ChangeConnected |= now ^ g_Gamepad->CurrentConnected;
+        g_Gamepad->CurrentConnected = now;
+    }
+}
+
+static BYTE Digital(bool down) { return down ? 0xFF : 0x00; }
+
+static void ReadPlayStation(DWORD index, XGamepad& g)
+{
+    PadState s;
+    if (!ReadPlayStationPad(int(index), s))
+        return;
+    g.wButtons |= s.buttons;
+    for (int i = 0; i < 8; ++i)
+        g.bAnalogButtons[i] |= s.analog[i];
+    g.sThumbLX = s.lx;
+    g.sThumbLY = s.ly;
+    g.sThumbRX = s.rx;
+    g.sThumbRY = s.ry;
+}
+
+static void ReadXInput(DWORD index, XGamepad& g)
+{
+    XINPUT_STATE s;
+    if (XInputGetState(index, &s) != ERROR_SUCCESS)
+        return;
+    const XINPUT_GAMEPAD& p = s.Gamepad;
+    if (p.wButtons & XINPUT_GAMEPAD_DPAD_UP) g.wButtons |= XB_DPAD_UP;
+    if (p.wButtons & XINPUT_GAMEPAD_DPAD_DOWN) g.wButtons |= XB_DPAD_DOWN;
+    if (p.wButtons & XINPUT_GAMEPAD_DPAD_LEFT) g.wButtons |= XB_DPAD_LEFT;
+    if (p.wButtons & XINPUT_GAMEPAD_DPAD_RIGHT) g.wButtons |= XB_DPAD_RIGHT;
+    if (p.wButtons & XINPUT_GAMEPAD_START) g.wButtons |= XB_START;
+    if (p.wButtons & XINPUT_GAMEPAD_BACK) g.wButtons |= XB_BACK;
+    if (p.wButtons & XINPUT_GAMEPAD_LEFT_THUMB) g.wButtons |= XB_LEFT_THUMB;
+    if (p.wButtons & XINPUT_GAMEPAD_RIGHT_THUMB) g.wButtons |= XB_RIGHT_THUMB;
+    g.bAnalogButtons[XB_A] |= Digital(p.wButtons & XINPUT_GAMEPAD_A);
+    g.bAnalogButtons[XB_B] |= Digital(p.wButtons & XINPUT_GAMEPAD_B);
+    g.bAnalogButtons[XB_X] |= Digital(p.wButtons & XINPUT_GAMEPAD_X);
+    g.bAnalogButtons[XB_Y] |= Digital(p.wButtons & XINPUT_GAMEPAD_Y);
+    g.bAnalogButtons[XB_BLACK] |= Digital(p.wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER);
+    g.bAnalogButtons[XB_WHITE] |= Digital(p.wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER);
+    g.bAnalogButtons[XB_LEFT_TRIGGER] |= p.bLeftTrigger;
+    g.bAnalogButtons[XB_RIGHT_TRIGGER] |= p.bRightTrigger;
+    g.sThumbLX = p.sThumbLX;
+    g.sThumbLY = p.sThumbLY;
+    g.sThumbRX = p.sThumbRX;
+    g.sThumbRY = p.sThumbRY;
+}
+
+static void ReadHostPad(DWORD port, XGamepad& g)
+{
+    const std::vector<Source> sources = Sources();
+    if (port >= sources.size())
+        return;
+    if (sources[port].playStation)
+        ReadPlayStation(sources[port].index, g);
+    else
+        ReadXInput(sources[port].index, g);
+}
+
+// Keyboard and mouse (controls.ini) as player 1's controller.
+static void ReadKeyboard(XGamepad& g)
+{
+    KeyboardPad k = ReadKeyboardPad();
+    g.wButtons |= k.buttons;
+    for (int i = 0; i < 8; ++i)
+        g.bAnalogButtons[i] |= k.analog[i];
+    if (k.lx) g.sThumbLX = k.lx;
+    if (k.ly) g.sThumbLY = k.ly;
+    if (k.rx) g.sThumbRX = k.rx;
+    if (k.ry) g.sThumbRY = k.ry;
+}
+
+// ---------------------------------------------------------------------------
+// XDK API
+// ---------------------------------------------------------------------------
+static void __stdcall XbInitDevices(DWORD preallocTypeCount, void* preallocTypes)
+{
+    (void)preallocTypeCount;
+    (void)preallocTypes;
+    std::lock_guard<std::mutex> lock(g_Lock);
+    StartPlayStationPads();
+    g_Gamepad->CurrentConnected = ConnectedMask();
+    g_Gamepad->ChangeConnected = g_Gamepad->CurrentConnected;
+    g_Gamepad->PreviousConnected = 0;
+    LOG_INFO("XInitDevices: gamepads on ports mask %lX", g_Gamepad->CurrentConnected);
+}
+
+static DWORD __stdcall XbGetDevices(XppDeviceType* type)
+{
+    std::lock_guard<std::mutex> lock(g_Lock);
+    if (type == g_Gamepad)
+        RefreshConnections();
+    DWORD connected = type->CurrentConnected;
+    type->ChangeConnected = 0;
+    type->PreviousConnected = connected;
+    return connected;
+}
+
+static BOOL __stdcall XbGetDeviceChanges(XppDeviceType* type, DWORD* insertions, DWORD* removals)
+{
+    std::lock_guard<std::mutex> lock(g_Lock);
+    if (type == g_Gamepad)
+        RefreshConnections();
+    *insertions = *removals = 0;
+    if (!type->ChangeConnected)
+        return FALSE;
+    *insertions = type->CurrentConnected & ~type->PreviousConnected;
+    *removals = type->PreviousConnected & ~type->CurrentConnected;
+    ULONG bounced = type->ChangeConnected & type->CurrentConnected & type->PreviousConnected;
+    *insertions |= bounced;
+    *removals |= bounced;
+    type->ChangeConnected = 0;
+    type->PreviousConnected = type->CurrentConnected;
+    return (*insertions | *removals) ? TRUE : FALSE;
+}
+
+static HANDLE __stdcall XbInputOpen(XppDeviceType* type, DWORD port, DWORD slot, void* pollingParameters)
+{
+    (void)slot;
+    (void)pollingParameters;
+    if (type != g_Gamepad || port >= 4)
+        return nullptr;
+    std::lock_guard<std::mutex> lock(g_Lock);
+    if (!(g_Gamepad->CurrentConnected & (1u << port)))
+        return nullptr;
+    g_Ports[port].open = true;
+    LOG_INFO("XInputOpen: gamepad port %lu", port);
+    return &g_Ports[port];
+}
+
+static void __stdcall XbInputClose(HANDLE device)
+{
+    if (device)
+        static_cast<Port*>(device)->open = false;
+}
+
+static DWORD __stdcall XbInputGetState(HANDLE device, XInputState* state)
+{
+    auto* port = static_cast<Port*>(device);
+    if (!port || !port->open)
+        return ERROR_DEVICE_NOT_CONNECTED;
+    DWORD index = DWORD(port - g_Ports);
+    XGamepad g = {};
+    ReadHostPad(index, g);
+    if (index == 0)
+        ReadKeyboard(g);
+    if (std::memcmp(&g, &port->last, sizeof(g)) != 0) {
+        port->last = g;
+        ++port->packet;
+    }
+    state->dwPacketNumber = port->packet;
+    state->Gamepad = g;
+    return ERROR_SUCCESS;
+}
+
+static DWORD __stdcall XbInputSetState(HANDLE device, XFeedback* feedback)
+{
+    auto* port = static_cast<Port*>(device);
+    if (!port || !port->open)
+        return ERROR_DEVICE_NOT_CONNECTED;
+    const std::vector<Source> sources = Sources();
+    const size_t index = size_t(port - g_Ports);
+    if (index < sources.size()) {
+        const Source& s = sources[index];
+        if (s.playStation) {
+            SetPlayStationRumble(int(s.index), feedback->Rumble.wLeftMotorSpeed, feedback->Rumble.wRightMotorSpeed);
+        } else {
+            XINPUT_VIBRATION v = { feedback->Rumble.wLeftMotorSpeed, feedback->Rumble.wRightMotorSpeed };
+            XInputSetState(s.index, &v);
+        }
+    }
+    // Rumble completes asynchronously on the Xbox; here it is done at once.
+    feedback->Header.dwStatus = ERROR_SUCCESS;
+    if (feedback->Header.hEvent)
+        SetEvent(feedback->Header.hEvent);
+    return ERROR_IO_PENDING;
+}
+
+SDK_REPLACE("XInitDevices", XbInitDevices);
+SDK_REPLACE("XPP_sub_558F20", XbInitDevices); // jump thunk to XInitDevices
+SDK_REPLACE("XGetDevices", XbGetDevices);
+SDK_REPLACE("XGetDeviceChanges", XbGetDeviceChanges);
+SDK_REPLACE("XInputOpen", XbInputOpen);
+SDK_REPLACE("XInputClose", XbInputClose);
+SDK_REPLACE("XInputGetState", XbInputGetState);
+SDK_REPLACE("XInputSetState", XbInputSetState);
+
+} // namespace swrots::input

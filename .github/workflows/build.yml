@@ -1,0 +1,59 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write # attach the zip to a release when a version tag is pushed
+
+jobs:
+  hygiene:
+    # No game content, binaries or personal data in the repository (tools/check_repo.py).
+    # Extra words to reject are in the repository variable HYGIENE_WORDS.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check files and commits
+        env:
+          HYGIENE_WORDS: ${{ vars.HYGIENE_WORDS }}
+        run: python3 tools/check_repo.py --commits HEAD
+
+  build:
+    needs: hygiene
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (32-bit)
+        run: cmake -S . -B build -A Win32
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = if ($env:GITHUB_REF_TYPE -eq 'tag') { "SWROTS-PC-$env:GITHUB_REF_NAME" } else { "SWROTS-PC-$($env:GITHUB_SHA.Substring(0,7))" }
+          $dir = "package/$name"
+          New-Item -ItemType Directory -Force $dir | Out-Null
+          Copy-Item build/bin/swrots.exe, build/bin/core.dll, README.md, LICENSE, THIRD_PARTY_NOTICES.md $dir
+          Copy-Item -Recurse docs "$dir/docs"
+          Compress-Archive -Path "$dir/*" -DestinationPath "package/$name.zip"
+          "PACKAGE=$name" >> $env:GITHUB_ENV
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE }}
+          path: package/${{ env.PACKAGE }}/
+
+      - name: Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" "package/${{ env.PACKAGE }}.zip" --title "${{ github.ref_name }}" --generate-notes --prerelease
