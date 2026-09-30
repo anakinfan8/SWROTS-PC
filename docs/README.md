@@ -36,3 +36,5 @@ Notes on the game's engine, from its own executable and from related games.
 - [The versus roster](research/versus-roster.md): how Yoda became a versus fighter, with addresses
 - [Characters](research/characters.md): classes, costume lists, texture sets (the 501st), bodies and
   animation bindings, with addresses
+- [The camera system](research/camera-system.md): from the master camera to the screen, camera effects,
+  the free camera

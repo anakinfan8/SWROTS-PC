@@ -180,8 +180,10 @@ How it works, with addresses: [characters](research/characters.md).
 
 `freecam` detaches the view from the game's camera, starting where it was, and lets you fly it
 anywhere; the player stands still (your input goes to the camera), and the game keeps running as
-it was. Close the debug menu to fly. `freecam` again (or `freecam off`) gives the view and the
-controls back. It is off again after a level change or restart.
+it was. The game's camera effects -- the shake of a hit, the zoom of a fight -- are kept off the
+flown view; outside the free camera they are as always. Close the debug menu to fly. `freecam` again
+(or `freecam off`) gives the view and the controls back. It is off again after a level change or
+restart. How it works: [the camera system](research/camera-system.md).
 
 | | Keyboard and mouse | Controller |
 |---|---|---|
@@ -192,8 +194,8 @@ controls back. It is off again after a level change or restart.
 | Base speed | Mouse wheel | D-pad up / down |
 
 For screenshots, freeze the game and hide the HUD first: `set timeScale 0` and `set hud 0` (and
-`set timeScale 1`, `set hud 1` afterwards). The level may leave out parts of itself far from where
-the player is.
+`set timeScale 1`, `set hud 1` afterwards). The camera flies on real time, so it moves with the game
+frozen. `hud 0` hides the HUD but not the on-screen tips.
 
 Some of the game's commands:
 

@@ -38,6 +38,9 @@ Things the Xbox release never had:
   costume, a texture set and a body in the debug menu's Characters tab (or `player IAnakin duel`),
   and the mission restarts with them. Some missions expect their own character.
 - **Unlock everything** with the developers' own cheat, `unlockprofile` (debug console).
+- **Free camera.** Fly the view anywhere with `freecam` (debug console): keyboard and mouse or a
+  controller, without the game's camera shake and zoom. With `set timeScale 0` and `set hud 0`, a
+  simple photo mode.
 - **The game's hidden debug console and displays**, and **loose-file mods** without rebuilding
   archives.
 
@@ -119,6 +122,7 @@ the run before. Say what you were doing, which level, and whether it happens eve
   intro, and a darker player-2 bust and HUD portrait for Sith Yoda. Playing as any character works in story levels;
   next are changing character without a restart, costumes and bodies in Versus, blaster fire for
   gunner characters, and spawning any character.
+- A photo mode built on the free camera, with the game's own menus.
 - Modding tools: a character swap tool, dumping and replacing animations.
 - A full playthrough on many machines, and a stable 1.0.
 
