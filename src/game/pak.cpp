@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace swrots::game {
@@ -19,8 +20,12 @@ uint32_t U32(const uint8_t* p)
 
 bool PakIndex::Load(const std::wstring& path)
 {
+    m_Path = path;
+    m_ImageBlock = 0;
     m_ByOffset.clear();
     m_ByName.clear();
+    m_ByStem.clear();
+    m_ByFile.clear();
     HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
         FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
     if (file == INVALID_HANDLE_VALUE)
@@ -37,6 +42,8 @@ bool PakIndex::Load(const std::wstring& path)
     }
 
     const uint32_t length = uint32_t(size.QuadPart);
+    if (length >= 0x1C)
+        m_ImageBlock = U32(data + 0x14);
     constexpr uint32_t kFixed = 0x18 + 0x18; // header without the name
     for (uint32_t p = 0; p + kFixed + 4 <= length; ++p) {
         if (U32(data + p + 4) != p)
@@ -62,6 +69,15 @@ bool PakIndex::Load(const std::wstring& path)
         e.offset = p;
         e.size = entrySize;
         e.typeId = U32(tail + 8);
+        e.dataOffset = p + kFixed + nameLength;
+        e.rawSize = U32(h + 12);
+        if (manual && e.rawSize == 0) // manual entries (.ban) record no size; their data fills the entry
+            e.rawSize = entrySize - (kFixed + nameLength);
+        if (uint64_t(e.dataOffset) + e.rawSize > p + uint64_t(entrySize))
+            e.rawSize = 0;
+        e.imageOffset = int32_t(U32(tail + 16));
+        e.imageSize = int32_t(U32(tail + 20));
+        e.segmented = U32(tail + 4) == 1;
         e.name.assign(name, n);
         for (char& c : e.name)
             c = char(tolower(static_cast<unsigned char>(c)));
@@ -75,6 +91,9 @@ bool PakIndex::Load(const std::wstring& path)
                 e.name.erase(dot + 1, 3);
         }
         m_ByName[e.name].push_back(p);
+        size_t stemEnd = e.name.rfind('.');
+        m_ByStem[e.name.substr(0, stemEnd)].push_back(p);
+        m_ByFile[e.name.substr(e.name.rfind('\\') + 1)].push_back(p);
         m_ByOffset.emplace(p, std::move(e));
     }
 
@@ -99,6 +118,71 @@ const PakIndex::Entry* PakIndex::FindAfter(const std::string& lowerName, uint32_
         if (o >= offset)
             return AtOffset(o);
     return nullptr;
+}
+
+const PakIndex::Entry* PakIndex::FindWithData(const std::string& lowerName) const
+{
+    auto it = m_ByName.find(lowerName);
+    if (it == m_ByName.end())
+        return nullptr;
+    for (uint32_t o : it->second)
+        if (const Entry* e = AtOffset(o); e && e->HasData())
+            return e;
+    return nullptr;
+}
+
+const PakIndex::Entry* PakIndex::FindStemWithData(const std::string& lowerStem, uint32_t typeId) const
+{
+    auto it = m_ByStem.find(lowerStem);
+    if (it == m_ByStem.end())
+        return nullptr;
+    for (uint32_t o : it->second)
+        if (const Entry* e = AtOffset(o); e && e->typeId == typeId && e->HasData())
+            return e;
+    return nullptr;
+}
+
+std::vector<const PakIndex::Entry*> PakIndex::WithPrefix(const std::string& lowerPrefix) const
+{
+    std::vector<const Entry*> found;
+    for (const auto& [name, offsets] : m_ByName) {
+        if (name.compare(0, lowerPrefix.size(), lowerPrefix) != 0)
+            continue;
+        if (const Entry* e = FindWithData(name))
+            found.push_back(e);
+    }
+    std::sort(found.begin(), found.end(), [](const Entry* a, const Entry* b) { return a->offset < b->offset; });
+    return found;
+}
+
+const PakIndex::Entry* PakIndex::FindFileWithData(const std::string& lowerFileName, uint32_t typeId) const
+{
+    auto it = m_ByFile.find(lowerFileName);
+    if (it == m_ByFile.end())
+        return nullptr;
+    for (uint32_t o : it->second)
+        if (const Entry* e = AtOffset(o); e && e->typeId == typeId && e->HasData())
+            return e;
+    return nullptr;
+}
+
+bool PakIndex::ReadData(const Entry& entry, std::vector<uint8_t>& out) const
+{
+    bool image = entry.imageOffset >= 0 && entry.imageSize > 0;
+    uint64_t offset = image ? uint64_t(m_ImageBlock) + uint32_t(entry.imageOffset) : entry.dataOffset;
+    uint32_t size = image ? uint32_t(entry.imageSize) : entry.rawSize;
+    HANDLE file = CreateFileW(m_Path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0,
+        nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return false;
+    out.resize(size);
+    LARGE_INTEGER at;
+    at.QuadPart = LONGLONG(offset);
+    DWORD read = 0;
+    bool ok = SetFilePointerEx(file, at, nullptr, FILE_BEGIN) && ReadFile(file, out.data(), size, &read, nullptr) &&
+        read == size;
+    CloseHandle(file);
+    return ok;
 }
 
 } // namespace swrots::game

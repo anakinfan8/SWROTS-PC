@@ -131,6 +131,24 @@ static std::wstring PartitionRoot(const std::string& number)
     return root;
 }
 
+// Files generated for the disc drive, kept under cache\disc\ and read from there (a file there
+// takes the disc's place; a mods\ copy takes precedence). The engine's own: a development-minded
+// engine rebuilds a mesh's animation binding (.ban) when the one it loaded lacks animations the
+// character needs (a character used in a level it was not built for) and writes it next to the
+// mesh; the disc is not writable, so such writes go to cache\disc\. Only .ban files are written
+// there: the engine's development modes can also write whole PAKs, which must never shadow the
+// disc's. The port's: resources it makes (game::RegisterResourceGenerator).
+static bool IsGeneratedFile(const std::string& rest)
+{
+    std::string lower = Lower(rest);
+    return lower.size() > 4 && lower.compare(lower.size() - 4, 4, ".ban") == 0;
+}
+
+static std::wstring GeneratedPath(const std::string& rest)
+{
+    return g_Cache + L"\\disc" + Widen(rest);
+}
+
 // Resolves an Xbox object name to a host NT path ("\??\C:\...").
 static bool ResolveDevicePath(const std::string& path, std::wstring& host)
 {
@@ -178,6 +196,14 @@ static bool ResolveDevicePath(const std::string& path, std::wstring& host)
                     root = g_Mods;
                 }
             }
+        }
+        // Generated files likewise, after mods\; their folders when neither the disc nor mods\ has
+        // them (a listing of the folder sizes the files' reads).
+        if (root == g_GameData && rest.size() > 1) {
+            DWORD generated = GetFileAttributesW(GeneratedPath(rest).c_str());
+            if (generated != INVALID_FILE_ATTRIBUTES && (!(generated & FILE_ATTRIBUTE_DIRECTORY) ||
+                    GetFileAttributesW((g_GameData + Widen(rest)).c_str()) == INVALID_FILE_ATTRIBUTES))
+                root = g_Cache + L"\\disc";
         }
     } else if (starts("\\device\\harddisk0\\partition")) {
         size_t n = strlen("\\device\\harddisk0\\partition");
@@ -333,6 +359,26 @@ NTSTATUS XBAPI NtCreateFile(HANDLE* FileHandle, ACCESS_MASK DesiredAccess, xbox:
         return status;
     }
 
+    // A generated file created on the disc drive goes to cache\disc (see IsGeneratedFile).
+    std::wstring discRoot = L"\\??\\" + g_GameData;
+    if (CreateDisposition != FILE_OPEN && !oa.RootDirectory && storage.size() > discRoot.size() &&
+        _wcsnicmp(storage.c_str(), discRoot.c_str(), discRoot.size()) == 0) {
+        std::wstring rest = storage.substr(discRoot.size());
+        std::string narrow;
+        for (wchar_t c : rest)
+            narrow += char(c < 0x80 ? c : '_'); // game paths are ASCII
+        if (IsGeneratedFile(narrow)) {
+            std::wstring target = GeneratedPath(narrow);
+            for (size_t i = g_Cache.size() + 1; (i = target.find(L'\\', i + 1)) != std::wstring::npos;)
+                CreateDirectoryW(target.substr(0, i).c_str(), nullptr);
+            storage = L"\\??\\" + target;
+            name.Buffer = storage.data();
+            name.Length = USHORT(storage.size() * sizeof(wchar_t));
+            name.MaximumLength = name.Length;
+            LOG_INFO("Generated file %s goes to cache\\disc", narrow.c_str());
+        }
+    }
+
     // The Xbox I/O manager lets any handle query/set basic file information;
     // Windows requires the attribute access rights for that.
     DesiredAccess |= FILE_READ_ATTRIBUTES | SYNCHRONIZE;
@@ -461,13 +507,10 @@ NTSTATUS XBAPI NtQueryFullAttributesFile(xbox::OBJECT_ATTRIBUTES* ObjectAttribut
     return ::NtQueryFullAttributesFile(&oa, FileInformation);
 }
 
-// A disc directory listing must describe mod overrides, not the disc's copies: the game
-// sizes some reads from the listing (vars_xbox.cfg is read with the size FindFirstFile
-// reports). Returns the overriding mods\ file for `name` in the directory `dir`, if any.
-static bool FindModOverride(HANDLE dir, const wchar_t* name, size_t nameChars, WIN32_FILE_ATTRIBUTE_DATA& data)
+// The path of an open directory relative to the disc ("" for its root, else "\folder\..."), or
+// false when it is not a disc directory.
+static bool DiscRelative(HANDLE dir, std::wstring& relative)
 {
-    if (g_Mods.empty())
-        return false;
     wchar_t buf[MAX_PATH * 2];
     DWORD n = GetFinalPathNameByHandleW(dir, buf, DWORD(std::size(buf)), FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
     if (n == 0 || n >= std::size(buf))
@@ -478,9 +521,66 @@ static bool FindModOverride(HANDLE dir, const wchar_t* name, size_t nameChars, W
     if (path.size() < g_GameData.size() || _wcsnicmp(path.c_str(), g_GameData.c_str(), g_GameData.size()) != 0
         || (path.size() > g_GameData.size() && path[g_GameData.size()] != L'\\'))
         return false;
-    std::wstring candidate = g_Mods + path.substr(g_GameData.size()) + L"\\" + std::wstring(name, nameChars);
-    return GetFileAttributesExW(candidate.c_str(), GetFileExInfoStandard, &data)
-        && !(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
+    relative = path.substr(g_GameData.size());
+    return true;
+}
+
+// A disc directory listing must describe mod overrides, not the disc's copies: the game
+// sizes some reads from the listing (vars_xbox.cfg is read with the size FindFirstFile
+// reports). Returns the overriding mods\ file for `name` in the directory `dir`, if any, else a
+// generated one (cache\disc\).
+static bool FindModOverride(HANDLE dir, const wchar_t* name, size_t nameChars, WIN32_FILE_ATTRIBUTE_DATA& data)
+{
+    std::wstring folder;
+    if (g_Mods.empty() || !DiscRelative(dir, folder))
+        return false;
+    const std::wstring relative = folder + L"\\" + std::wstring(name, nameChars);
+    for (const std::wstring& candidate : { g_Mods + relative, g_Cache + L"\\disc" + relative }) {
+        if (GetFileAttributesExW(candidate.c_str(), GetFileExInfoStandard, &data)
+            && !(data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+            return true;
+    }
+    return false;
+}
+
+// A disc directory listing must also list the files only mods\ or cache\disc\ has for the
+// directory (a loose file in a folder the disc has too, e.g. mods\gameinfo\missionlist.txt, or a
+// generated interfc\front_end\ texture): the game finds files and their sizes by listing. They come
+// after the disc's own entries; the names still to report, per open listing, start at a restart.
+static std::mutex g_ListingLock;
+static std::map<HANDLE, std::vector<std::wstring>> g_ListingExtras;
+
+static bool MatchesMask(const wchar_t* name, const wchar_t* mask)
+{
+    if (!*mask)
+        return !*name;
+    if (*mask == L'*')
+        return MatchesMask(name, mask + 1) || (*name && MatchesMask(name + 1, mask));
+    return *name && (*mask == L'?' || towlower(*name) == towlower(*mask)) && MatchesMask(name + 1, mask + 1);
+}
+
+static std::vector<std::wstring> ExtraListing(HANDLE dir, const std::wstring& mask)
+{
+    std::vector<std::wstring> names;
+    std::wstring folder;
+    if (g_Mods.empty() || !DiscRelative(dir, folder))
+        return names;
+    for (const std::wstring& root : { g_Mods, g_Cache + L"\\disc" }) {
+        WIN32_FIND_DATAW found;
+        HANDLE find = FindFirstFileW((root + folder + L"\\*").c_str(), &found);
+        if (find == INVALID_HANDLE_VALUE)
+            continue;
+        do {
+            std::wstring name = found.cFileName;
+            if ((found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || !MatchesMask(name.c_str(), mask.empty() ? L"*" : mask.c_str()) ||
+                GetFileAttributesW((g_GameData + folder + L"\\" + name).c_str()) != INVALID_FILE_ATTRIBUTES)
+                continue;
+            if (std::none_of(names.begin(), names.end(), [&](const std::wstring& n) { return _wcsicmp(n.c_str(), name.c_str()) == 0; }))
+                names.push_back(name);
+        } while (FindNextFileW(find, &found));
+        FindClose(find);
+    }
+    return names;
 }
 
 NTSTATUS XBAPI NtQueryDirectoryFile(HANDLE FileHandle, HANDLE Event, xbox::PIO_APC_ROUTINE ApcRoutine, void* ApcContext,
@@ -501,11 +601,12 @@ NTSTATUS XBAPI NtQueryDirectoryFile(HANDLE FileHandle, HANDLE Event, xbox::PIO_A
     IO_STATUS_BLOCK iosb = {};
     NTSTATUS status = ::NtQueryDirectoryFile(FileHandle, nullptr, nullptr, nullptr, &iosb, hostBuf, sizeof(hostBuf),
         1 /*FileDirectoryInformation*/, TRUE, mask.empty() ? nullptr : &umask, RestartScan);
-    // A file only in mods\ (not on the disc): a lookup by exact name finds it there.
-    WIN32_FILE_ATTRIBUTE_DATA added;
-    if (status < 0 && RestartScan && !mask.empty() && mask.size() < MAX_PATH
-        && mask.find_first_of(L"*?<>\"") == std::wstring::npos
-        && FindModOverride(FileHandle, mask.c_str(), mask.size(), added)) {
+    // A file only in mods\ or cache\disc\ (not on the disc): a lookup by exact name finds it there,
+    // and a listing reports it after the disc's entries.
+    auto addEntry = [&](const std::wstring& name) {
+        WIN32_FILE_ATTRIBUTE_DATA added;
+        if (name.size() >= MAX_PATH || !FindModOverride(FileHandle, name.c_str(), name.size(), added))
+            return false;
         auto* h = reinterpret_cast<HostDirectoryInformation*>(hostBuf);
         memset(h, 0, sizeof(HostDirectoryInformation));
         auto time = [](const FILETIME& t) { LARGE_INTEGER v; v.QuadPart = LONGLONG(t.dwHighDateTime) << 32 | t.dwLowDateTime; return v; };
@@ -513,9 +614,29 @@ NTSTATUS XBAPI NtQueryDirectoryFile(HANDLE FileHandle, HANDLE Event, xbox::PIO_A
         h->LastAccessTime = time(added.ftLastAccessTime);
         h->LastWriteTime = h->ChangeTime = time(added.ftLastWriteTime);
         h->FileAttributes = added.dwFileAttributes;
-        h->FileNameLength = ULONG(mask.size() * sizeof(wchar_t));
-        memcpy(h->FileName, mask.c_str(), h->FileNameLength);
-        status = 0; // the size is filled in below, as for an override
+        h->FileNameLength = ULONG(name.size() * sizeof(wchar_t));
+        memcpy(h->FileName, name.c_str(), h->FileNameLength);
+        return true; // the size is filled in below, as for an override
+    };
+    const bool wildcard = mask.empty() || mask.find_first_of(L"*?<>\"") != std::wstring::npos;
+    if (!wildcard) {
+        if (status < 0 && RestartScan && addEntry(mask))
+            status = 0;
+    } else {
+        std::lock_guard<std::mutex> lock(g_ListingLock);
+        if (RestartScan)
+            g_ListingExtras[FileHandle] = ExtraListing(FileHandle, mask == L"*.*" ? std::wstring(L"*") : mask);
+        auto it = g_ListingExtras.find(FileHandle);
+        if (status < 0 && (status == NTSTATUS(0x80000006L) || status == NTSTATUS(0xC000000FL)) && it != g_ListingExtras.end()) {
+            while (!it->second.empty() && status < 0) { // STATUS_NO_MORE_FILES / STATUS_NO_SUCH_FILE
+                std::wstring name = it->second.front();
+                it->second.erase(it->second.begin());
+                if (addEntry(name))
+                    status = 0;
+            }
+            if (it->second.empty())
+                g_ListingExtras.erase(it);
+        }
     }
     if (status >= 0) {
         auto* h = reinterpret_cast<HostDirectoryInformation*>(hostBuf);

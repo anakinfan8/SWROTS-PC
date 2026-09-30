@@ -106,6 +106,9 @@ __declspec(naked) void DiscErrorStub()
     }
 }
 
+// The "You are missing required animations for character %s" report: je over the engine warning.
+constexpr uint32_t kMissingAnimationsWarnJump = 0x001F8BF0;
+
 } // namespace
 
 void InstallDevOptions(bool debugDisplays)
@@ -116,6 +119,9 @@ void InstallDevOptions(bool debugDisplays)
     PatchCall(kVarsSetSite, reinterpret_cast<const void*>(&VarsSetStub), 9);
     PatchCall(kProfileGodCopySite, reinterpret_cast<const void*>(&ProfileGodStub), 9);
     PatchJump(kDiscErrorHandler, reinterpret_cast<const void*>(&DiscErrorStub));
+    // Character scripts that lack animations (0x1F8AB0) report them only to a game callback unless
+    // asked to warn; make them always warn, so the log and console name the missing animations.
+    PatchNop(kMissingAnimationsWarnJump, 2);
 }
 
 void ApplyDevOptions(uint8_t* options)

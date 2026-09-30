@@ -12,6 +12,14 @@
 // builds the same StdFile + PackFile reader objects the direct I/O branch uses
 // and decodes the loose file instead of the packed copy. The file system layer
 // maps d:\ paths to mods\ when an override exists.
+//
+// A level PAK holds only what the level was built with, in the order it asks for
+// it. A resource the level's PAK does not have further on (a character it never
+// loads, e.g. Yoda in a versus arena) is taken from another PAK on the disc
+// instead, without touching the level's stream: its data is decoded from an
+// engine memory file (TFileMemory), or, for a memory-image resource (animations),
+// copied into engine memory and handed to the type's in-place loader, as Read
+// does with the level's own memory-image block.
 
 #include "game/resources.h"
 
@@ -20,8 +28,11 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 #include "core/log.h"
 #include "core/patch.h"
@@ -72,6 +83,9 @@ using FileSizeFn = uint32_t(__cdecl*)(const EnginePath* path);
 using StdFileCtorFn = EngineObject*(__fastcall*)(void* mem, void* edx, uint32_t arg);
 using PackReaderCtorFn = EngineObject*(__fastcall*)(void* mem, void* edx, EngineObject* file, int arg);
 using AllocFn = void*(__cdecl*)(uint32_t size);
+using FileMemoryCtorFn = EngineObject*(__fastcall*)(void* mem, void* edx);
+using FileMemoryOpenFn = bool(__fastcall*)(EngineObject* file, void* edx, const void* data, uint32_t size);
+using ImageLoadFn = void(__fastcall*)(EngineObject* loader, void* edx, void* image, uint32_t size);
 
 const auto BuildPath = reinterpret_cast<BuildPathFn>(uintptr_t(kEnginePathBuild));
 const auto PathString = reinterpret_cast<PathStringFn>(uintptr_t(kEnginePathString));
@@ -79,6 +93,7 @@ const auto StrCopy = reinterpret_cast<StrCopyFn>(uintptr_t(kEngineStrCopy));
 const auto FileSize = reinterpret_cast<FileSizeFn>(uintptr_t(kEngineFileSize));
 const auto StdFileCtor = reinterpret_cast<StdFileCtorFn>(uintptr_t(kStdFileCtor));
 const auto PackReaderCtor = reinterpret_cast<PackReaderCtorFn>(uintptr_t(kPackReaderCtor));
+const auto FileMemoryCtor = reinterpret_cast<FileMemoryCtorFn>(uintptr_t(kFileMemoryCtor));
 
 // Global engine services table (alloc at +0x50, StdFile gate at +0x38).
 uint8_t* Services() { return *reinterpret_cast<uint8_t**>(uintptr_t(kEngineServices)); }
@@ -87,6 +102,7 @@ ReadFn g_OriginalRead = nullptr;
 bool g_EngineMessageHookInstalled = false; // per boot: the services table is the game's
 bool g_LogResources = false;
 std::wstring g_Mods;
+std::wstring g_GeneratedDir; // cache\disc: generated resources, served as loose files
 std::wstring g_DumpDir; // empty: dumping disabled
 
 // Reads in flight on this thread. Decoding a resource can load others (a level
@@ -117,29 +133,18 @@ uint32_t LooseFileSize(const char* fullPath)
     return data.nFileSizeLow;
 }
 
-// Mirrors the engine's direct I/O branch: open the resource path with StdFile,
-// wrap it in a PackFile reader, decode it as a non-PAK read, then close and
-// delete both.
-int __cdecl DecodeLooseFile(int scene, ReadSource* pakSource, int typeId, int extra)
+AllocFn EngineAlloc() { return *reinterpret_cast<AllocFn*>(Services() + 0x50); }
+
+// Mirrors the engine's direct I/O branch: wraps an opened engine file in a
+// PackFile reader, decodes it as a non-PAK read of `size` bytes, then closes and
+// deletes both.
+int DecodeFromFile(EngineObject* file, uint32_t size, int scene, ReadSource* pakSource, int typeId, int extra)
 {
     PendingRead* pending = t_Top;
     pending->used = true;
-    auto alloc = *reinterpret_cast<AllocFn*>(Services() + 0x50);
-    uint8_t* gate = *reinterpret_cast<uint8_t**>(Services() + 0x38);
-    EnginePath* path = pakSource->path;
-
-    EngineObject* file = StdFileCtor(alloc(0x194), nullptr, gate ? *reinterpret_cast<uint32_t*>(gate + 0x24) : 0);
-    StrCopy(reinterpret_cast<char*>(file) + 0x64, PathString(path, nullptr, 1));
-    VirtualAt<void(__fastcall*)(EngineObject*, void*, EnginePath*, int)>(file, 0x0C)(file, nullptr, path, 1);
-    EngineObject* reader = PackReaderCtor(alloc(0x24), nullptr, file, 0);
-    if (pakSource->record) {
-        // The decoder's size (record +0x10): the loose file's own size, from the host.
-        uint32_t engineSize = FileSize(path);
-        uint32_t hostSize = LooseFileSize(pending->path);
-        if (hostSize != engineSize)
-            LOG_WARN("Loose resource %s: engine size %u, file size %u", pending->path, engineSize, hostSize);
-        *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(pakSource->record) + 0x10) = hostSize;
-    }
+    EngineObject* reader = PackReaderCtor(EngineAlloc()(0x24), nullptr, file, 0);
+    if (pakSource->record) // the decoder's size
+        *reinterpret_cast<uint32_t*>(static_cast<uint8_t*>(pakSource->record) + 0x10) = size;
 
     ReadSource source = *pakSource;
     source.reader = reader;
@@ -150,6 +155,24 @@ int __cdecl DecodeLooseFile(int scene, ReadSource* pakSource, int typeId, int ex
     VirtualAt<void(__fastcall*)(EngineObject*, void*, int)>(file, 0x00)(file, nullptr, 1);
     VirtualAt<void(__fastcall*)(EngineObject*, void*, int)>(reader, 0x00)(reader, nullptr, 1);
     return result;
+}
+
+// A loose file under mods\: opened with StdFile at the resource path.
+int DecodeLooseFile(int scene, ReadSource* pakSource, int typeId, int extra)
+{
+    PendingRead* pending = t_Top;
+    uint8_t* gate = *reinterpret_cast<uint8_t**>(Services() + 0x38);
+    EnginePath* path = pakSource->path;
+
+    EngineObject* file = StdFileCtor(EngineAlloc()(0x194), nullptr, gate ? *reinterpret_cast<uint32_t*>(gate + 0x24) : 0);
+    StrCopy(reinterpret_cast<char*>(file) + 0x64, PathString(path, nullptr, 1));
+    VirtualAt<void(__fastcall*)(EngineObject*, void*, EnginePath*, int)>(file, 0x0C)(file, nullptr, path, 1);
+    // The loose file's own size, from the host.
+    uint32_t engineSize = FileSize(path);
+    uint32_t hostSize = LooseFileSize(pending->path);
+    if (pakSource->record && hostSize != engineSize)
+        LOG_WARN("Loose resource %s: engine size %u, file size %u", pending->path, engineSize, hostSize);
+    return DecodeFromFile(file, hostSize, scene, pakSource, typeId, extra);
 }
 
 // Resource dumper: saves each resource's raw bytes to dump\<path> as the game
@@ -245,46 +268,253 @@ void InstallEngineMessageHook()
 }
 
 // Resource paths are d:\<dir>\<name>; overrides live at mods\<dir>\<name>.
+bool IsFile(const std::wstring& path)
+{
+    DWORD attrs = GetFileAttributesW(path.c_str());
+    return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+// A loose file for a resource: mods\<path>, else a generated one, cache\disc\<path> (the file layer
+// opens the same files for the resource's d:\ path).
 std::wstring LooseHostPath(const char* fullPath)
 {
-    std::wstring candidate = g_Mods + L"\\";
-    for (const char* p = fullPath + 3; *p; ++p)
-        candidate += wchar_t(static_cast<unsigned char>(*p));
-    return candidate;
+    std::wstring rest;
+    for (const char* p = fullPath + 2; *p; ++p)
+        rest += wchar_t(static_cast<unsigned char>(*p));
+    std::wstring mod = g_Mods + rest;
+    if (g_GeneratedDir.empty() || IsFile(mod))
+        return mod;
+    return g_GeneratedDir + rest;
 }
 
 bool HasLooseCopy(const char* fullPath)
 {
     if (g_Mods.empty() || _strnicmp(fullPath, "d:\\", 3) != 0)
         return false;
-    DWORD attrs = GetFileAttributesW(LooseHostPath(fullPath).c_str());
-    return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
+    return IsFile(LooseHostPath(fullPath));
 }
 
-// PAK indexes by host path, kept for the session.
+// PAK indexes by host path, kept for the session (resource reads come from
+// more than one thread).
+std::mutex g_IndexLock;
 std::unordered_map<std::wstring, PakIndex> g_PakIndexes;
+std::vector<const PakIndex*> g_DiscPaks; // every level PAK, for resources a level lacks
+const PakIndex* g_LevelIndex = nullptr;  // the PAK the current level streams from
+uint8_t* g_LevelScene = nullptr;         // the scene levels load into (the scene load hook's)
+bool g_DiscPaksIndexed = false;
 std::wstring g_GameData;
+
+const PakIndex* IndexForHostPath(const std::wstring& host)
+{
+    auto it = g_PakIndexes.find(host);
+    if (it == g_PakIndexes.end()) {
+        it = g_PakIndexes.emplace(host, PakIndex()).first;
+        if (it->second.Load(host))
+            LOG_INFO("PAK index %ls: %zu entries", host.c_str(), it->second.Count());
+        else
+            LOG_WARN("PAK index %ls: could not read", host.c_str());
+    }
+    return it->second.Count() ? &it->second : nullptr;
+}
+
+// `rest` is \pak\<name>; a copy under mods\ takes precedence.
+std::wstring PakHostPath(const std::wstring& rest)
+{
+    std::wstring host = g_Mods + rest;
+    return GetFileAttributesW(host.c_str()) == INVALID_FILE_ATTRIBUTES ? g_GameData + rest : host;
+}
 
 const PakIndex* IndexForPak(const char* pakPath)
 {
-    // pakPath is "d:\pak\res_<level>.pak"; a copy under mods\ takes precedence.
+    // pakPath is "d:\pak\res_<level>.pak".
     if (_strnicmp(pakPath, "d:\\", 3) != 0)
         return nullptr;
     std::wstring rest;
     for (const char* c = pakPath + 2; *c; ++c)
         rest += wchar_t(static_cast<unsigned char>(*c));
-    std::wstring host = g_Mods + rest;
-    if (GetFileAttributesW(host.c_str()) == INVALID_FILE_ATTRIBUTES)
-        host = g_GameData + rest;
-    auto it = g_PakIndexes.find(host);
-    if (it == g_PakIndexes.end()) {
-        it = g_PakIndexes.emplace(host, PakIndex()).first;
-        if (it->second.Load(host))
-            LOG_INFO("PAK index %s: %zu entries", pakPath, it->second.Count());
-        else
-            LOG_WARN("PAK index %s: could not read", pakPath);
+    std::lock_guard<std::mutex> lock(g_IndexLock);
+    return IndexForHostPath(PakHostPath(rest));
+}
+
+// Finds a resource's data outside the level's stream: earlier in the level's own
+// PAK, else in any level PAK on the disc (segment files hold only textures of
+// their own level). The disc's PAKs are indexed on first need.
+template <typename Find>
+const PakIndex::Entry* FindElsewhere(const PakIndex* level, Find find, const PakIndex*& owner)
+{
+    if (const PakIndex::Entry* e = level ? find(level) : nullptr) {
+        owner = level;
+        return e;
     }
-    return it->second.Count() ? &it->second : nullptr;
+    std::lock_guard<std::mutex> lock(g_IndexLock);
+    if (!g_DiscPaksIndexed) {
+        g_DiscPaksIndexed = true;
+        WIN32_FIND_DATAW found;
+        HANDLE find = FindFirstFileW((g_GameData + L"\\pak\\res_*.pak").c_str(), &found);
+        if (find != INVALID_HANDLE_VALUE) {
+            do {
+                std::wstring name = found.cFileName;
+                if (name.find(L"_seg") != std::wstring::npos)
+                    continue;
+                if (const PakIndex* index = IndexForHostPath(PakHostPath(L"\\pak\\" + name)))
+                    g_DiscPaks.push_back(index);
+            } while (FindNextFileW(find, &found));
+            FindClose(find);
+        }
+    }
+    for (const PakIndex* index : g_DiscPaks) {
+        if (index == level)
+            continue;
+        if (const PakIndex::Entry* e = find(index)) {
+            owner = index;
+            return e;
+        }
+    }
+    return nullptr;
+}
+
+const PakIndex::Entry* FindElsewhere(const PakIndex* level, const std::string& wanted, const PakIndex*& owner)
+{
+    return FindElsewhere(level, [&](const PakIndex* index) { return index->FindWithData(wanted); }, owner);
+}
+
+// Loads a resource the level's PAK stream does not have from another copy.
+// Returns false (nothing done) when it cannot.
+// The level's own memory-image resources are in memory already (the PAK's image block, packer
+// +0x16C, loaded whole with the level); reading one only hands it to its type's loader. An image of
+// the level's that is asked for after the stream passed it is taken from the block rather than
+// copied. Registered images per level PAK, so none is handed to its loader twice.
+std::mutex g_ImageLock;
+std::unordered_map<const PakIndex*, std::unordered_set<uint32_t>> g_RegisteredImages;
+
+void* RegisterLevelImage(uint8_t* packer, const PakIndex* level, const PakIndex::Entry& entry)
+{
+    auto* block = *reinterpret_cast<uint8_t**>(packer + kPackerImageBlock);
+    auto* loader = *reinterpret_cast<EngineObject**>(packer + kPackerImageLoaders + entry.typeId * 4);
+    if (!block || !loader || entry.imageOffset < 0 || entry.imageSize <= 0)
+        return nullptr;
+    uint8_t* image = block + entry.imageOffset;
+    std::lock_guard<std::mutex> lock(g_ImageLock);
+    if (g_RegisteredImages[level].insert(entry.offset).second)
+        VirtualAt<ImageLoadFn>(loader, kImageLoaderLoadSlot)(loader, nullptr, image, uint32_t(entry.imageSize));
+    packer[kPackerLastWasImage] = 1;
+    return image;
+}
+
+// Resource patches (RegisterResourcePatch), by relative lower-case name.
+std::mutex g_PatchLock;
+std::unordered_map<std::string, ResourcePatch> g_Patches;
+
+ResourcePatch PatchFor(const std::string& lowerName)
+{
+    std::lock_guard<std::mutex> lock(g_PatchLock);
+    auto it = g_Patches.find(lowerName);
+    return it == g_Patches.end() ? nullptr : it->second;
+}
+
+// Generated resources (RegisterResourceGenerator): made once per session and written to
+// cache\disc\<name>, from where they are served as loose files (served from memory, a texture
+// decodes but is not the one drawn); from memory only if the file cannot be written.
+void WriteGeneratedFile(const std::string& lowerName, const std::vector<uint8_t>& data)
+{
+    if (g_GeneratedDir.empty())
+        return;
+    std::wstring path = g_GeneratedDir + L"\\";
+    for (char c : lowerName)
+        path += wchar_t(static_cast<unsigned char>(c));
+    for (size_t i = g_GeneratedDir.size() + 1; (i = path.find(L'\\', i)) != std::wstring::npos; ++i)
+        CreateDirectoryW(path.substr(0, i).c_str(), nullptr);
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    DWORD written = 0;
+    bool ok = file != INVALID_HANDLE_VALUE && WriteFile(file, data.data(), DWORD(data.size()), &written, nullptr) &&
+        written == data.size();
+    if (file != INVALID_HANDLE_VALUE)
+        CloseHandle(file);
+    if (!ok) {
+        LOG_WARN("Generated: could not write %ls", path.c_str());
+        DeleteFileW(path.c_str());
+    }
+}
+
+// Kept for the session.
+std::mutex g_GeneratorLock;
+std::vector<ResourceGenerator> g_Generators;
+std::unordered_map<std::string, std::vector<uint8_t>> g_Generated;
+
+const std::vector<uint8_t>* Generated(const std::string& lowerName)
+{
+    std::lock_guard<std::mutex> lock(g_GeneratorLock);
+    auto it = g_Generated.find(lowerName);
+    if (it != g_Generated.end())
+        return &it->second;
+    for (ResourceGenerator generator : g_Generators) {
+        std::vector<uint8_t> data;
+        if (generator(lowerName, data) && !data.empty()) {
+            LOG_INFO("Generated: %s (%zu bytes)", lowerName.c_str(), data.size());
+            WriteGeneratedFile(lowerName, data);
+            return &(g_Generated[lowerName] = std::move(data));
+        }
+    }
+    return nullptr;
+}
+
+// Decodes a generated resource as a non-PAK read (t_Top set by the caller).
+int DecodeGenerated(uint8_t* packer, const std::vector<uint8_t>& data, EnginePath* path, int typeId, void* record,
+    int extra, int context)
+{
+    EngineObject* file = FileMemoryCtor(EngineAlloc()(kFileMemorySize), nullptr);
+    VirtualAt<FileMemoryOpenFn>(file, kFileMemoryOpenSlot)(file, nullptr, const_cast<uint8_t*>(data.data()), uint32_t(data.size()));
+    packer[kPackerLastWasImage] = 0;
+    ReadSource source = { nullptr, path, 0, {}, record };
+    return DecodeFromFile(file, uint32_t(data.size()), context, &source, typeId, extra);
+}
+
+// `levelBlock`: the level's image block is in use (its stream is open), so the level's own images
+// are taken from it.
+bool ReadElsewhere(uint8_t* packer, const PakIndex* owner, const PakIndex::Entry& entry, EnginePath* path, int typeId,
+    void* record, int extra, int context, int& result, bool levelBlock = true)
+{
+    if (levelBlock && entry.imageOffset >= 0 && entry.imageSize > 0 && owner == g_LevelIndex) {
+        if (void* image = RegisterLevelImage(packer, owner, entry)) {
+            result = int(reinterpret_cast<uintptr_t>(image));
+            return true;
+        }
+    }
+    std::vector<uint8_t> data;
+    if (!owner->ReadData(entry, data) || data.empty()) {
+        LOG_WARN("PAK: could not read %s from %ls", entry.name.c_str(), owner->Path().c_str());
+        return false;
+    }
+    if (int(entry.typeId) != typeId)
+        LOG_WARN("PAK: %s is type %u in %ls, requested as type %d", entry.name.c_str(), entry.typeId,
+            owner->Path().c_str(), typeId);
+    if (ResourcePatch patch = PatchFor(entry.name); patch && !(entry.imageOffset >= 0 && entry.imageSize > 0)) {
+        size_t before = data.size();
+        patch(data);
+        LOG_INFO("PAK: %s patched (%zu -> %zu bytes)", entry.name.c_str(), before, data.size());
+    }
+
+    if (entry.imageOffset >= 0 && entry.imageSize > 0) {
+        auto* loader = *reinterpret_cast<EngineObject**>(packer + kPackerImageLoaders + typeId * 4);
+        if (!loader) {
+            LOG_WARN("PAK: no memory-image loader for type %d (%s)", typeId, entry.name.c_str());
+            return false;
+        }
+        // Kept for the rest of the level, as the level's own image block is.
+        void* image = EngineAlloc()(uint32_t(data.size()));
+        std::memcpy(image, data.data(), data.size());
+        VirtualAt<ImageLoadFn>(loader, kImageLoaderLoadSlot)(loader, nullptr, image, uint32_t(data.size()));
+        packer[kPackerLastWasImage] = 1;
+        result = int(reinterpret_cast<uintptr_t>(image));
+    } else {
+        EngineObject* file = FileMemoryCtor(EngineAlloc()(kFileMemorySize), nullptr);
+        VirtualAt<FileMemoryOpenFn>(file, kFileMemoryOpenSlot)(file, nullptr, data.data(), uint32_t(data.size()));
+        packer[kPackerLastWasImage] = 0;
+        ReadSource source = { nullptr, path, 0, {}, record };
+        result = DecodeFromFile(file, uint32_t(data.size()), context, &source, typeId, extra);
+    }
+    LOG_INFO("PAK: %s loaded from %ls", entry.name.c_str(), owner->Path().c_str());
+    return true;
 }
 
 // Moves a PAK stream forward by reading and discarding up to `target`. The
@@ -306,7 +536,8 @@ void SeekForward(EngineObject* reader, uint32_t target)
 // Loose resources are decoded straight from their files without the PAK read,
 // so they never consume PAK entries. PAK reads that find the stream at an entry
 // nobody asked for (the packed copy of a loose resource, or the textures of a
-// replaced mesh) skip forward to the requested entry.
+// replaced mesh) skip forward to the requested entry; resources that are not
+// further on in the level's PAK are loaded from a copy elsewhere.
 int __fastcall ReadHook(void* packer, void* edx, DecodeFn decode, EnginePath* path, int typeId, void* record, int a5,
     int extra, int context)
 {
@@ -331,20 +562,94 @@ int __fastcall ReadHook(void* packer, void* edx, DecodeFn decode, EnginePath* pa
 
     auto* p = static_cast<uint8_t*>(packer);
     auto* reader = *reinterpret_cast<EngineObject**>(p + 4);
-    if (*reinterpret_cast<uint32_t*>(p + 0x1D0) == 2 && p[0x88] == 0 && p[8] == 0 && reader &&
-        _strnicmp(full, "d:\\", 3) == 0) {
+    bool onDiscDrive = _strnicmp(full, "d:\\", 3) == 0;
+    uint32_t mode = *reinterpret_cast<uint32_t*>(p + 0x1D0); // 0 files, 1 recording a PAK, 2 PAK stream
+    bool packMode = mode == 2 && p[0x88] == 0 && reader && onDiscDrive;
+    // The engine reads a resource as a file on the disc in mode 0 (e.g. once a level's stream is
+    // done: an effect whose copy the stream skipped, asked for later by a character the level was not
+    // made for), and in mode 2 when the packer's "direct" flag (+8, set through the scene,
+    // 0x4B1C0) is set. One that is not on the disc as a file would fail -- the "disc dirty or damaged"
+    // screen, or garbage such as "OBSOLETE ANIMATION!" and a crash -- so it comes from a PAK's copy
+    // instead, the level's own first.
+    if (onDiscDrive && (mode == 0 || (mode == 2 && p[8] != 0))) {
+        std::wstring onDisc = g_GameData;
+        for (const char* c = full + 2; *c; ++c)
+            onDisc += wchar_t(static_cast<unsigned char>(*c));
+        if (GetFileAttributesW(onDisc.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            const PakIndex* index = g_LevelIndex;
+            if (mode == 2 && reader) {
+                char pakPath[512] = {};
+                BuildPath(reinterpret_cast<EnginePath*>(p + 0x174), nullptr, pakPath, 0);
+                index = IndexForPak(pakPath);
+            }
+            std::string wanted = full + 3;
+            for (char& c : wanted)
+                c = char(tolower(static_cast<unsigned char>(c)));
+            const PakIndex* owner = nullptr;
+            if (const PakIndex::Entry* entry = FindElsewhere(index, wanted, owner)) {
+                t_Top = &pending;
+                int result = 0;
+                bool done = ReadElsewhere(p, owner, *entry, path, typeId, record, extra, context, result, mode == 2);
+                t_Top = pending.outer;
+                if (done)
+                    return result;
+            } else if (const std::vector<uint8_t>* generated = Generated(wanted)) {
+                t_Top = &pending;
+                int result = DecodeGenerated(p, *generated, path, typeId, record, extra, context);
+                t_Top = pending.outer;
+                return result;
+            }
+        }
+    }
+    if (packMode && p[8] == 0) {
         char pakPath[512] = {};
         BuildPath(reinterpret_cast<EnginePath*>(p + 0x174), nullptr, pakPath, 0);
         if (const PakIndex* index = IndexForPak(pakPath)) {
+            g_LevelIndex = index;
             std::string wanted = full + 3;
             for (char& c : wanted)
                 c = char(tolower(static_cast<unsigned char>(c)));
             uint32_t pos = VirtualAt<uint32_t(__fastcall*)(EngineObject*, void*)>(reader, 0x44)(reader, nullptr);
             const PakIndex::Entry* next = index->AtOffset(pos);
-            if (next && next->name != wanted) {
+            // A patched resource is decoded from an edited copy; its entry in the stream is passed.
+            if (PatchFor(wanted)) {
+                const PakIndex::Entry* entry = next && next->name == wanted ? next : index->FindAfter(wanted, pos);
+                if (!entry)
+                    entry = index->FindWithData(wanted);
+                if (entry && entry->HasData()) {
+                    if (entry->offset >= pos)
+                        SeekForward(reader, entry->offset + entry->size);
+                    t_Top = &pending;
+                    int result = 0;
+                    bool done = ReadElsewhere(p, index, *entry, path, typeId, record, extra, context, result);
+                    t_Top = pending.outer;
+                    if (done)
+                        return result;
+                }
+            }
+            if (!next || next->name != wanted) {
                 if (const PakIndex::Entry* target = index->FindAfter(wanted, pos)) {
-                    LOG_INFO("PAK: skipping from %s to %s", next->name.c_str(), wanted.c_str());
-                    SeekForward(reader, target->offset);
+                    if (next) {
+                        LOG_INFO("PAK: skipping from %s to %s", next->name.c_str(), wanted.c_str());
+                        SeekForward(reader, target->offset);
+                    }
+                } else {
+                    const PakIndex* owner = nullptr;
+                    if (const PakIndex::Entry* entry = FindElsewhere(index, wanted, owner)) {
+                        t_Top = &pending;
+                        int result = 0;
+                        bool done = ReadElsewhere(p, owner, *entry, path, typeId, record, extra, context, result);
+                        t_Top = pending.outer;
+                        if (done)
+                            return result;
+                    } else if (const std::vector<uint8_t>* generated = Generated(wanted)) {
+                        t_Top = &pending;
+                        int result = DecodeGenerated(p, *generated, path, typeId, record, extra, context);
+                        t_Top = pending.outer;
+                        return result;
+                    } else {
+                        LOG_WARN("PAK: %s is in no PAK", wanted.c_str());
+                    }
                 }
             }
         }
@@ -358,14 +663,496 @@ int __fastcall ReadHook(void* packer, void* edx, DecodeFn decode, EnginePath* pa
     return result;
 }
 
+// --- Manual files ---------------------------------------------------------------------------------
+// Some resources (a mesh's .ban animation binding) are "manual" PAK entries, read through their own
+// call (game::kPackerOpenManual): it parses the entry header at the stream position and hands out the
+// packer's reader at the data if the name matches. As with ordinary reads, an entry further on is
+// skipped to, and one the level's PAK does not have further on is served from another PAK's copy
+// through a memory file, leaving the level's stream where it is.
+
+using OpenManualFn = EngineObject*(__fastcall*)(uint8_t* packer, void* edx, EnginePath* path);
+OpenManualFn g_OriginalOpenManual = nullptr;
+
+EngineObject* __fastcall OpenManualHook(uint8_t* packer, void* edx, EnginePath* path)
+{
+    auto* reader = *reinterpret_cast<EngineObject**>(packer + 4);
+    char full[512] = {};
+    if (path)
+        BuildPath(path, nullptr, full, 0);
+    if (!path || !reader || *reinterpret_cast<uint32_t*>(packer + 0x1D0) != 2 || _strnicmp(full, "d:\\", 3) != 0)
+        return g_OriginalOpenManual(packer, edx, path);
+    char pakPath[512] = {};
+    BuildPath(reinterpret_cast<EnginePath*>(packer + 0x174), nullptr, pakPath, 0);
+    const PakIndex* index = IndexForPak(pakPath);
+    if (!index)
+        return g_OriginalOpenManual(packer, edx, path);
+
+    std::string wanted = full + 3;
+    for (char& c : wanted)
+        c = char(tolower(static_cast<unsigned char>(c)));
+    uint32_t pos = VirtualAt<uint32_t(__fastcall*)(EngineObject*, void*)>(reader, 0x44)(reader, nullptr);
+    const PakIndex::Entry* next = index->AtOffset(pos);
+    if (next && next->name == wanted)
+        return g_OriginalOpenManual(packer, edx, path);
+    if (const PakIndex::Entry* target = index->FindAfter(wanted, pos)) {
+        if (next) {
+            LOG_INFO("PAK: skipping from %s to %s (manual)", next->name.c_str(), wanted.c_str());
+            SeekForward(reader, target->offset);
+        }
+        return g_OriginalOpenManual(packer, edx, path);
+    }
+    const PakIndex* owner = nullptr;
+    const PakIndex::Entry* entry = FindElsewhere(index, wanted, owner);
+    std::vector<uint8_t> data;
+    if (!entry || entry->rawSize == 0 || !owner->ReadData(*entry, data))
+        return g_OriginalOpenManual(packer, edx, path);
+    EngineObject* file = FileMemoryCtor(EngineAlloc()(kFileMemorySize), nullptr);
+    VirtualAt<FileMemoryOpenFn>(file, kFileMemoryOpenSlot)(file, nullptr, data.data(), uint32_t(data.size()));
+    LOG_INFO("PAK: %s (manual) loaded from %ls", wanted.c_str(), owner->Path().c_str());
+    return PackReaderCtor(EngineAlloc()(0x24), nullptr, file, 0); // kept: the caller does not free it
+}
+
+// --- Declaring resources a level's PAK does not list ---------------------------------------------
+// A scene loads only what its PAK header declared (see game::kSceneLoadResource); some loaders also
+// ask first whether a resource is declared (game::kSceneIsDeclared) and skip it otherwise -- that
+// answer must stay (declaring there makes a level take optional content it left out, e.g. grapple
+// animations, as preloaded). When a load finds a resource undeclared that exists in another PAK
+// on the disc, it is declared the way
+// the engine's own folder scan (0x4F230) does -- a node named after the path, in a group under the
+// path's key in the type's map -- and the load is retried; the read then finds it through
+// ReadElsewhere. Only character content is declared (models, textures, animations, effects): a
+// level's menus, text and level files stay its own. Nodes and
+// groups are allocated here (the scene's pools are sized exactly from the PAK header), and the
+// folder array is grown before the engine may append to it.
+
+using SceneLoadFn = void*(__fastcall*)(uint8_t* scene, void* edx, const EnginePath* path, int typeId, int flags);
+using AddStringFn = uint16_t(__fastcall*)(uint8_t* scene, void* edx, const char* text);
+using NodeSetPathFn = void(__fastcall*)(uint8_t* node, void* edx, const EnginePath* path, uint8_t* scene);
+using MapFindFn = int(__fastcall*)(uint8_t* map, void* edx, const char* key);
+using MapInsertFn = void(__fastcall*)(uint8_t* map, void* edx, uint32_t key, uint8_t* group);
+using PathKeyFn = const char*(__fastcall*)(const EnginePath* path, void* edx, int withoutExtension);
+using IsDeclaredFn = bool(__fastcall*)(uint8_t* scene, void* edx, const EnginePath* path, int typeId);
+using PathFromTextFn = void*(__fastcall*)(void* path, void* edx, const char* text, int kind);
+
+SceneLoadFn g_OriginalSceneLoad = nullptr;
+const auto SceneIsDeclared = reinterpret_cast<IsDeclaredFn>(uintptr_t(kSceneIsDeclared));
+const auto SceneAddString = reinterpret_cast<AddStringFn>(uintptr_t(kSceneAddString));
+const auto NodeSetPath = reinterpret_cast<NodeSetPathFn>(uintptr_t(kNodeSetPath));
+const auto ResourceMapFind = reinterpret_cast<MapFindFn>(uintptr_t(kResourceMapFind));
+const auto ResourceMapInsert = reinterpret_cast<MapInsertFn>(uintptr_t(kResourceMapInsert));
+const auto PathKey = reinterpret_cast<PathKeyFn>(uintptr_t(kEnginePathKey));
+const auto PathFromText = reinterpret_cast<PathFromTextFn>(uintptr_t(kEnginePathFromText));
+
+constexpr int kFolderHeadroom = 256;
+std::mutex g_DeclareLock;
+std::unordered_map<uint8_t*, int> g_FolderCapacity; // per scene, once grown here
+
+template <typename T> T& At(uint8_t* base, uint32_t offset) { return *reinterpret_cast<T*>(base + offset); }
+
+// Room for `extra` more folders: the engine appends without checking.
+void ReserveFolders(uint8_t* scene, int extra)
+{
+    int count = At<int>(scene, kSceneFolderCount);
+    auto it = g_FolderCapacity.find(scene);
+    int capacity = it == g_FolderCapacity.end() ? count : it->second;
+    if (count + extra <= capacity)
+        return;
+    int grown = count + extra + kFolderHeadroom;
+    auto* folders = static_cast<uint8_t*>(EngineAlloc()(grown * kSceneFolderSize));
+    std::memcpy(folders, At<uint8_t*>(scene, kSceneFolders), count * kSceneFolderSize);
+    for (int i = count; i < grown; ++i) { // as the array constructor (0x4A7D0) leaves them
+        uint8_t* folder = folders + i * kSceneFolderSize;
+        std::memset(folder, 0, kSceneFolderSize);
+        At<uint16_t>(folder, 0x22) = 0xFFFF;
+        At<uint16_t>(folder, 0x24) = 0xFFFF;
+    }
+    At<uint8_t*>(scene, kSceneFolders) = folders; // the old array stays allocated
+    g_FolderCapacity[scene] = grown;
+}
+
+// The engine's animation index (SceneBoneAnimAPI, 0x65C50) files every declared animation by folder
+// and name, but builds it only once, at the first lookup (a character's setup), and marks it built by
+// clearing +0x50 of the lookup object ([kGameContext] + 0x148). Declaring an animation after that
+// sets the flag again, so the next lookup adds it (existing names are kept, not duplicated).
+constexpr int kAnimationType = 10;
+
+void MarkAnimationIndexStale()
+{
+    auto* context = *reinterpret_cast<uint8_t**>(uintptr_t(kGameContext));
+    auto* index = context ? *reinterpret_cast<uint8_t**>(context + kGameContextAnimationIndex) : nullptr;
+    if (index)
+        index[kAnimationIndexStale] = 1;
+}
+
+bool Declare(uint8_t* scene, const EnginePath* path, int typeId, uint32_t size)
+{
+    uint8_t* table = At<uint8_t*>(scene, kSceneTypeTables + typeId * 4);
+    if (!table)
+        return false;
+    uint8_t* map = table + kTypeTableMap;
+    std::lock_guard<std::mutex> lock(g_DeclareLock);
+    ReserveFolders(scene, 16);
+
+    auto* node = static_cast<uint8_t*>(EngineAlloc()(20));
+    std::memset(node, 0, 20);
+    NodeSetPath(node, nullptr, path, scene);
+    At<uint32_t>(node, 0x10) = size;
+    if (typeId == kAnimationType)
+        MarkAnimationIndexStale();
+
+    char key[256];
+    strncpy_s(key, PathKey(path, nullptr, 1), _TRUNCATE);
+    int index = ResourceMapFind(map, nullptr, key);
+    if (index >= 0) {
+        uint8_t* group = At<uint8_t*>(At<uint8_t*>(map, 8), index * 8 + 4);
+        At<uint8_t*>(node, 0) = group;
+        At<uint8_t*>(node, 4) = At<uint8_t*>(group, 4);
+        At<uint8_t*>(group, 4) = node;
+        return true;
+    }
+    auto* group = static_cast<uint8_t*>(EngineAlloc()(8));
+    uint8_t* items = At<uint8_t*>(map, 8);
+    // Group +0: as the map's other groups have it (the folder scan passes it through).
+    At<uint16_t>(group, 0) = At<int>(map, 4) > 0 ? At<uint16_t>(At<uint8_t*>(items, 4), 0) : 0;
+    At<uint16_t>(group, 2) = SceneAddString(scene, nullptr, key);
+    At<uint8_t*>(group, 4) = node;
+    At<uint8_t*>(node, 0) = group;
+    ResourceMapInsert(map, nullptr, At<uint16_t>(group, 2), group);
+    return true;
+}
+
+bool IsCharacterContent(const std::string& path)
+{
+    // Plus the versus select screen's pictures (see roster.cpp).
+    static const char* const kFolders[] = { "meshes\\", "animation\\", "effects\\", "textures\\",
+        "interfc\\front_end\\s_selduel_" };
+    for (const char* folder : kFolders)
+        if (path.rfind(folder, 0) == 0)
+            return true;
+    return false;
+}
+
+// Declares an undeclared resource that another PAK has. True when it did.
+bool DeclareFromDisc(uint8_t* scene, const EnginePath* path, int typeId, const PakIndex** declaredFrom = nullptr,
+    const PakIndex::Entry** declared = nullptr)
+{
+    if (!path || typeId < 0 || typeId >= 0x31 || SceneIsDeclared(scene, nullptr, path, typeId))
+        return false;
+    char full[512] = {};
+    BuildPath(path, nullptr, full, 0);
+    if (_strnicmp(full, "d:\\", 3) != 0)
+        return false;
+    std::string stem = full + 3;
+    for (char& c : stem)
+        c = char(tolower(static_cast<unsigned char>(c)));
+    size_t dot = stem.rfind('.');
+    if (dot != std::string::npos && stem.find('\\', dot) == std::string::npos)
+        stem.erase(dot);
+    if (!IsCharacterContent(stem))
+        return false;
+
+    const PakIndex* owner = nullptr;
+    const PakIndex::Entry* entry = FindElsewhere(nullptr,
+        [&](const PakIndex* index) { return index->FindStemWithData(stem, uint32_t(typeId)); }, owner);
+    if (!entry) {
+        std::string name = full + 3;
+        for (char& c : name)
+            c = char(tolower(static_cast<unsigned char>(c)));
+        const std::vector<uint8_t>* generated = Generated(name);
+        if (!generated || !Declare(scene, path, typeId, uint32_t(generated->size())))
+            return false;
+        LOG_INFO("Declare: %s (type %d), generated", full, typeId);
+        return true;
+    }
+    uint32_t size = entry->imageOffset >= 0 && entry->imageSize > 0 ? uint32_t(entry->imageSize) : entry->rawSize;
+    if (!Declare(scene, path, typeId, size)) {
+        LOG_WARN("Declare: no table for type %d (%s)", typeId, full);
+        return false;
+    }
+    LOG_INFO("Declare: %s (type %d) from %ls", full, typeId, owner->Path().c_str());
+    if (declaredFrom)
+        *declaredFrom = owner;
+    if (declared)
+        *declared = entry;
+    return true;
+}
+
+// A character definition (type 38, meshes\chars\common\<name>.xml) names the character's main
+// definition (s_<name>.xml) and its collision shape. A level loads those for its own characters
+// from its PAK stream at load time -- which registers the character's class info -- so for a
+// character declared here they are declared and loaded here too.
+constexpr int kCharacterDefinitionType = 38;
+constexpr int kAnimEventTreeType = 31;
+
+// Declares and loads a resource named `text` (relative, lower case) that this level lacks. Text
+// resources (tables) are only declared: their loaders parse them with options of their own.
+bool LoadUndeclared(uint8_t* scene, const std::string& text, const PakIndex::Entry& entry, bool load = true)
+{
+    alignas(4) uint8_t path[0x100] = {};
+    PathFromText(path, nullptr, text.c_str(), 1); // relative, as the engine names resources
+    auto* enginePath = reinterpret_cast<const EnginePath*>(path);
+    if (SceneIsDeclared(scene, nullptr, enginePath, int(entry.typeId)))
+        return false;
+    if (!DeclareFromDisc(scene, enginePath, int(entry.typeId)))
+        return false;
+    if (!load)
+        return true;
+    void* loaded;
+    if (entry.typeId == kAnimEventTreeType) {
+        // The main definition is an AnimEventTree, which only its manager can load (it supplies
+        // the type's loader for the call).
+        loaded = reinterpret_cast<void*(__cdecl*)(const EnginePath*)>(uintptr_t(kLoadAnimEventTree))(enginePath);
+    } else {
+        loaded = g_OriginalSceneLoad(scene, nullptr, enginePath, int(entry.typeId), 0);
+    }
+    if (!loaded)
+        LOG_WARN("Declare: %s did not load", text.c_str());
+    return loaded != nullptr;
+}
+
+void LoadReferences(uint8_t* scene, const std::vector<uint8_t>& data)
+{
+    for (size_t i = 0; i + 4 < data.size(); ++i) {
+        uint32_t length;
+        std::memcpy(&length, &data[i], 4);
+        if (length < 8 || length > 200 || i + 4 + length > data.size())
+            continue;
+        std::string text(reinterpret_cast<const char*>(&data[i + 4]), length);
+        bool printable = true;
+        for (char c : text)
+            printable &= c >= 0x20 && c < 0x7F;
+        if (!printable || text.find('.') == std::string::npos)
+            continue;
+        for (char& c : text)
+            c = char(tolower(static_cast<unsigned char>(c)));
+        if (!IsCharacterContent(text))
+            continue;
+        i += 3 + length;
+
+        const PakIndex* owner = nullptr;
+        if (const PakIndex::Entry* entry = FindElsewhere(nullptr, text, owner))
+            LoadUndeclared(scene, text, *entry);
+    }
+}
+
+// A character's own tables (meshes\chars\common\r_<name>.csv reactions, a_<name>.csv attacks), from
+// its definition's PAK, declared up front: the table hooks below catch the tables opened by name,
+// but at least one loader (the attack table's) checks declarations on its own and skips an
+// undeclared table silently -- the character then fights without its attacks' data.
+void DeclareCharacterTables(uint8_t* scene, const PakIndex* owner, const std::string& character)
+{
+    const std::string suffix = "_" + character + ".csv";
+    for (const PakIndex::Entry* entry : owner->WithPrefix("meshes\\chars\\common\\")) {
+        const std::string& name = entry->name;
+        if (name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0 &&
+            name.find('\\', name.size() - suffix.size() - 1) == std::string::npos &&
+            LoadUndeclared(scene, name, *entry, false))
+            LOG_INFO("Declare: table %s (declared)", name.c_str());
+    }
+}
+
+// The engine keeps pointers into a scene's string table (e.g. the animation index's names), and
+// adding a string can reallocate its buffer. Room for the names a declaration may add is made once,
+// at the scene's first load, before anything is built on it.
+constexpr uint32_t kStringReserve = 0x10000;
+std::unordered_set<uint8_t*> g_ReservedScenes;
+
+void ReserveSceneStrings(uint8_t* scene)
+{
+    std::lock_guard<std::mutex> lock(g_DeclareLock);
+    if (!g_ReservedScenes.insert(scene).second)
+        return;
+    uint8_t* table = scene + kSceneStrings;
+    auto grow = reinterpret_cast<void(__fastcall*)(uint8_t*, void*)>(uintptr_t(kStringTableGrow));
+    for (int i = 0; i < 8 && At<uint32_t>(table, kStringTableFree) < kStringReserve; ++i)
+        grow(table, nullptr);
+}
+
+// Character tables (meshes\chars\common\<name>.csv: a character's reactions and behaviour,
+// including its parent classes', e.g. a padawan's b_JediKnight.csv) are opened by name
+// (game::kOpenCharacterTable), which only opens tables the level declares. A table the level lacks
+// is declared from the disc first; the engine then loads and parses it as usual.
+using OpenCharacterTableFn = void*(__cdecl*)(const char* name);
+OpenCharacterTableFn g_OriginalOpenCharacterTable = nullptr;
+
+void DeclareCharacterTable(const char* name)
+{
+    if (!name || !g_LevelScene)
+        return;
+    std::string file = std::string("meshes\\chars\\common\\") + name + ".csv";
+    for (char& c : file)
+        c = char(tolower(static_cast<unsigned char>(c)));
+    const PakIndex* owner = nullptr;
+    if (const PakIndex::Entry* entry = FindElsewhere(g_LevelIndex, file, owner))
+        LoadUndeclared(g_LevelScene, file, *entry, false);
+}
+
+void* __cdecl OpenCharacterTableHook(const char* name)
+{
+    DeclareCharacterTable(name);
+    return g_OriginalOpenCharacterTable(name);
+}
+
+// Event tables (a character's attacks, a_<name>.csv) are loaded by a second path
+// (game::kLoadEventTable), with the name taken from the character: [[object + 0x434] + 4] + 0x2C.
+using LoadEventTableFn = void*(__cdecl*)(uint8_t* object);
+LoadEventTableFn g_OriginalLoadEventTable = nullptr;
+
+void* __cdecl LoadEventTableHook(uint8_t* object)
+{
+    auto* info = object ? *reinterpret_cast<uint8_t**>(object + 0x434) : nullptr;
+    auto* names = info ? *reinterpret_cast<uint8_t**>(info + 4) : nullptr;
+    DeclareCharacterTable(names ? *reinterpret_cast<const char**>(names + 0x2C) : nullptr);
+    return g_OriginalLoadEventTable(object);
+}
+
+// Missing animations. Before a character's script is built, the engine looks up every animation it
+// requires by name (game::kAnimationLookup) and fails the character if any is missing -- a character a
+// level never had needs its own animations, animations it shares with other characters (a Jedi
+// brute's movement is the Neimoidian brute's), and the grapple animations of the characters it can
+// fight. The engine's own list of missing names is resolved here: each name is looked for as a file
+// (<name>.bnm) in the disc's PAKs, declared and loaded into the level, and the lookup runs again.
+struct EngineArray {
+    int32_t capacity;
+    int32_t count;
+    const char** data;
+};
+using AnimationLookupFn = bool(__fastcall*)(void* self, void* edx, void* script, void* classInfo, void* arg3,
+    EngineArray* found, EngineArray* missing, int flag);
+AnimationLookupFn g_OriginalAnimationLookup = nullptr;
+
+bool __fastcall AnimationLookupHook(void* self, void* edx, void* script, void* classInfo, void* arg3,
+    EngineArray* found, EngineArray* missing, int flag)
+{
+    int foundBefore = found ? found->count : 0;
+    bool result = g_OriginalAnimationLookup(self, edx, script, classInfo, arg3, found, missing, flag);
+    if (!missing || missing->count <= 0 || !g_LevelScene)
+        return result;
+    int resolved = 0;
+    for (int i = 0; i < missing->count; ++i) {
+        const char* name = missing->data[i];
+        if (!name)
+            continue;
+        std::string file = name;
+        for (char& c : file)
+            c = char(tolower(static_cast<unsigned char>(c)));
+        file += ".bnm";
+        const PakIndex* owner = nullptr;
+        const PakIndex::Entry* entry = FindElsewhere(g_LevelIndex,
+            [&](const PakIndex* index) { return index->FindFileWithData(file, kAnimationType); }, owner);
+        if (entry && LoadUndeclared(g_LevelScene, entry->name, *entry))
+            ++resolved;
+    }
+    if (resolved == 0)
+        return result;
+    LOG_INFO("Declare: %d of %d missing animation(s) found on the disc", resolved, missing->count);
+    // Declaring marked the index for a rebuild; look again with fresh results.
+    missing->count = 0;
+    if (found)
+        found->count = foundBefore;
+    return g_OriginalAnimationLookup(self, edx, script, classInfo, arg3, found, missing, flag);
+}
+
+void* __fastcall SceneLoadHook(uint8_t* scene, void* edx, const EnginePath* path, int typeId, int flags)
+{
+    ReserveSceneStrings(scene);
+    g_LevelScene = scene;
+    void* result = g_OriginalSceneLoad(scene, edx, path, typeId, flags);
+    // A null result is also the answer to "is it loaded yet?" for declared resources.
+    const PakIndex* owner = nullptr;
+    const PakIndex::Entry* entry = nullptr;
+    if (!result && DeclareFromDisc(scene, path, typeId, &owner, &entry)) {
+        result = g_OriginalSceneLoad(scene, edx, path, typeId, flags);
+        std::vector<uint8_t> data;
+        if (result && typeId == kCharacterDefinitionType && owner->ReadData(*entry, data)) {
+            LoadReferences(scene, data);
+            std::string character = entry->name.substr(entry->name.rfind('\\') + 1);
+            DeclareCharacterTables(scene, owner, character.substr(0, character.find('.')));
+        }
+    }
+    return result;
+}
+
 } // namespace
 
-void InstallResourceHooks(const std::wstring& gameData, const std::wstring& modsDir, const std::wstring& dumpDir,
-    bool logResources)
+bool DiscHasResource(const std::string& lowerName)
+{
+    const PakIndex* owner = nullptr;
+    return FindElsewhere(nullptr, lowerName, owner) != nullptr;
+}
+
+void RegisterResourcePatch(const std::string& lowerName, ResourcePatch patch)
+{
+    std::lock_guard<std::mutex> lock(g_PatchLock);
+    g_Patches[lowerName] = patch;
+}
+
+void RegisterResourceGenerator(ResourceGenerator generator)
+{
+    std::lock_guard<std::mutex> lock(g_GeneratorLock);
+    if (std::find(g_Generators.begin(), g_Generators.end(), generator) == g_Generators.end())
+        g_Generators.push_back(generator);
+}
+
+bool ReadDiscResource(const std::string& lowerName, std::vector<uint8_t>& data)
+{
+    const PakIndex* owner = nullptr;
+    const PakIndex::Entry* entry = FindElsewhere(nullptr, lowerName, owner);
+    return entry && !(entry->imageOffset >= 0 && entry->imageSize > 0) && owner->ReadData(*entry, data) && !data.empty();
+}
+
+std::vector<std::string> DiscResourceNames(const std::string& lowerPrefix)
+{
+    const PakIndex* owner = nullptr;
+    FindElsewhere(nullptr, std::string(), owner); // indexes the disc's PAKs
+    std::vector<std::string> names;
+    std::lock_guard<std::mutex> lock(g_IndexLock);
+    for (const PakIndex* index : g_DiscPaks) {
+        for (const PakIndex::Entry* entry : index->WithPrefix(lowerPrefix)) {
+            if (std::find(names.begin(), names.end(), entry->name) == names.end())
+                names.push_back(entry->name);
+        }
+    }
+    return names;
+}
+
+bool DeclareGeneratedResource(const std::string& lowerName, int typeId)
+{
+    uint8_t* scene = g_LevelScene;
+    const std::vector<uint8_t>* generated = scene ? Generated(lowerName) : nullptr;
+    if (!generated)
+        return false;
+    alignas(4) uint8_t path[0x100] = {};
+    PathFromText(path, nullptr, lowerName.c_str(), 1); // relative, as the engine names resources
+    auto* enginePath = reinterpret_cast<const EnginePath*>(path);
+    if (SceneIsDeclared(scene, nullptr, enginePath, typeId) ||
+        !Declare(scene, enginePath, typeId, uint32_t(generated->size())))
+        return false;
+    LOG_INFO("Declare: %s (type %d), generated", lowerName.c_str(), typeId);
+    return true;
+}
+
+bool LoadGeneratedResource(const std::string& lowerName, int typeId)
+{
+    uint8_t* scene = g_LevelScene;
+    if (!scene || !Generated(lowerName))
+        return false;
+    DeclareGeneratedResource(lowerName, typeId);
+    alignas(4) uint8_t path[0x100] = {};
+    PathFromText(path, nullptr, lowerName.c_str(), 1);
+    void* loaded = g_OriginalSceneLoad(scene, nullptr, reinterpret_cast<const EnginePath*>(path), typeId, 0);
+    if (!loaded)
+        LOG_WARN("Generated: %s did not load", lowerName.c_str());
+    return loaded != nullptr;
+}
+
+void InstallResourceHooks(const std::wstring& gameData, const std::wstring& modsDir, const std::wstring& cacheDir,
+    const std::wstring& dumpDir, bool logResources)
 {
     g_EngineMessageHookInstalled = false;
     g_GameData = gameData;
     g_Mods = modsDir;
+    g_GeneratedDir = cacheDir.empty() ? std::wstring() : cacheDir + L"\\disc";
     g_DumpDir = dumpDir;
     if (!g_DumpDir.empty()) {
         CreateDirectoryW(g_DumpDir.c_str(), nullptr);
@@ -381,6 +1168,61 @@ void InstallResourceHooks(const std::wstring& gameData, const std::wstring& mods
     std::memcpy(stub + 7, &rel, 4);
     g_OriginalRead = reinterpret_cast<ReadFn>(stub);
     PatchJump(kSceneResRead, reinterpret_cast<const void*>(&ReadHook));
+
+    // Trampoline: the displaced "sub esp, 0x10C" (6 bytes), then jump back.
+    g_FolderCapacity.clear(); // a rebooted game's scenes and image blocks are new
+    g_RegisteredImages.clear();
+    g_ReservedScenes.clear();
+    g_LevelScene = nullptr;
+    g_LevelIndex = nullptr;
+    uint8_t* loadStub = AllocStub(16);
+    static const uint8_t kLoadPrologue[6] = { 0x81, 0xEC, 0x0C, 0x01, 0x00, 0x00 };
+    std::memcpy(loadStub, kLoadPrologue, sizeof(kLoadPrologue));
+    loadStub[6] = 0xE9;
+    rel = int32_t(kSceneLoadResource + 6) - int32_t(uintptr_t(loadStub) + 11);
+    std::memcpy(loadStub + 7, &rel, 4);
+    g_OriginalSceneLoad = reinterpret_cast<SceneLoadFn>(loadStub);
+    PatchJump(kSceneLoadResource, reinterpret_cast<const void*>(&SceneLoadHook));
+
+    // Trampoline: the displaced "sub esp, 0x74 / push ebx / xor ebx, ebx" (6 bytes), then jump back.
+    uint8_t* manualStub = AllocStub(16);
+    static const uint8_t kManualPrologue[6] = { 0x83, 0xEC, 0x74, 0x53, 0x33, 0xDB };
+    std::memcpy(manualStub, kManualPrologue, sizeof(kManualPrologue));
+    manualStub[6] = 0xE9;
+    rel = int32_t(kPackerOpenManual + 6) - int32_t(uintptr_t(manualStub) + 11);
+    std::memcpy(manualStub + 7, &rel, 4);
+    g_OriginalOpenManual = reinterpret_cast<OpenManualFn>(manualStub);
+
+    // Trampoline: the displaced "sub esp, 0x2C / push ebx / push ebp" (5 bytes), then jump back.
+    uint8_t* lookupStub = AllocStub(16);
+    static const uint8_t kLookupPrologue[5] = { 0x83, 0xEC, 0x2C, 0x53, 0x55 };
+    std::memcpy(lookupStub, kLookupPrologue, sizeof(kLookupPrologue));
+    lookupStub[5] = 0xE9;
+    rel = int32_t(kAnimationLookup + 5) - int32_t(uintptr_t(lookupStub) + 10);
+    std::memcpy(lookupStub + 6, &rel, 4);
+    g_OriginalAnimationLookup = reinterpret_cast<AnimationLookupFn>(lookupStub);
+    PatchJump(kAnimationLookup, reinterpret_cast<const void*>(&AnimationLookupHook));
+
+    // Trampoline: the displaced "sub esp, 0x158" (6 bytes), then jump back.
+    uint8_t* tableStub = AllocStub(16);
+    static const uint8_t kTablePrologue[6] = { 0x81, 0xEC, 0x58, 0x01, 0x00, 0x00 };
+    std::memcpy(tableStub, kTablePrologue, sizeof(kTablePrologue));
+    tableStub[6] = 0xE9;
+    rel = int32_t(kOpenCharacterTable + 6) - int32_t(uintptr_t(tableStub) + 11);
+    std::memcpy(tableStub + 7, &rel, 4);
+    g_OriginalOpenCharacterTable = reinterpret_cast<OpenCharacterTableFn>(tableStub);
+    PatchJump(kOpenCharacterTable, reinterpret_cast<const void*>(&OpenCharacterTableHook));
+
+    // Trampoline: the displaced "push ecx / mov eax, [esp + 8]" (5 bytes), then jump back.
+    uint8_t* eventStub = AllocStub(16);
+    static const uint8_t kEventPrologue[5] = { 0x51, 0x8B, 0x44, 0x24, 0x08 };
+    std::memcpy(eventStub, kEventPrologue, sizeof(kEventPrologue));
+    eventStub[5] = 0xE9;
+    rel = int32_t(kLoadEventTable + 5) - int32_t(uintptr_t(eventStub) + 10);
+    std::memcpy(eventStub + 6, &rel, 4);
+    g_OriginalLoadEventTable = reinterpret_cast<LoadEventTableFn>(eventStub);
+    PatchJump(kLoadEventTable, reinterpret_cast<const void*>(&LoadEventTableHook));
+    PatchJump(kPackerOpenManual, reinterpret_cast<const void*>(&OpenManualHook));
 }
 
 } // namespace swrots::game

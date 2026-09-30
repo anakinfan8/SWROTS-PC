@@ -54,6 +54,7 @@ FlightRecorder=1   ; Ctrl+Shift+F10 saves the last 3 seconds of frames and draw 
 
 In `mods\Default_Xbox.cfg`, `map:<level>` boots straight into a level, skipping the menus (level
 names are the PAK names in `GameData\pak` without `res_` and `.pak`), e.g. `map:u112_mus_lava`.
+A versus duel starts directly with `map:u110_cor_training_00` and `v_versusMode:1` on the next line.
 
 Environment variables: `SWROTS_NO_DIALOGS=1` (no message boxes, for unattended runs),
 `SWROTS_WATCHDOG=<seconds>` (dumps every game thread's stack after that time, for hangs),

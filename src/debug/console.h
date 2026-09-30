@@ -18,7 +18,8 @@ struct ConsoleLine {
     std::string text;
 };
 
-// Routes the console's print methods to the collected log. Call once at startup.
+// Routes the console's print methods to the collected log. Call at every boot, after the image is
+// loaded.
 void InstallConsoleHooks();
 
 // Adds a line to the log (any thread).

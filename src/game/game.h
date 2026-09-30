@@ -35,6 +35,68 @@ inline constexpr uint32_t kEngineStrCopy = 0x00223300;   // strcpy (cdecl)
 inline constexpr uint32_t kEngineFileSize = 0x00230C70;  // cdecl (const EFilePath*)
 inline constexpr uint32_t kStdFileCtor = 0x00232A10;     // thiscall (uint32_t), object 0x194 bytes
 inline constexpr uint32_t kPackReaderCtor = 0x00232D20;  // thiscall (StdFile*, int), object 0x24 bytes
+// TFileMemory (StdFile.cpp): a file object over a memory buffer. Open (vtable +0x40, thiscall
+// (const void* data, uint32_t size)) copies the data into its own engine allocation; slot 0 is the
+// deleting destructor.
+inline constexpr uint32_t kFileMemoryCtor = 0x002326D0;   // thiscall (), object 0x6C bytes
+inline constexpr uint32_t kFileMemorySize = 0x6C;
+inline constexpr uint32_t kFileMemoryOpenSlot = 0x40;
+// SceneResPacker fields. Memory-image resources (animations) are not decoded from the stream:
+// Read hands a pointer into the PAK's memory-image block to the type's loader
+// (StdSimpleMemoryImageManager, loaders[typeId] at +0xA8, vtable +0x10 thiscall (void* image,
+// uint32_t size), which relocates the image in place), sets +0x89 and returns the pointer.
+inline constexpr uint32_t kPackerImageLoaders = 0xA8;
+inline constexpr uint32_t kPackerLastWasImage = 0x89;
+inline constexpr uint32_t kPackerImageBlock = 0x16C; // -> the level PAK's memory-image block, in memory
+inline constexpr uint32_t kImageLoaderLoadSlot = 0x10;
+// Manual PAK entries (e.g. .ban): thiscall packer (const EFilePath*) -> the packer's reader at the
+// entry's data, or null when the entry at the stream position is not it (ret 4).
+inline constexpr uint32_t kPackerOpenManual = 0x00051F80;
+// Declared resources (SceneRes / SceneResTypes.cpp). A scene loads only resources its PAK header
+// declared: the load method (thiscall (const EFilePath*, int typeId, int flags), ret 0xC) finds the
+// path in the type's table and returns null when it is not there, without reading anything.
+//   scene +0x14F8 + typeId*4: type table {+0 extension, +0x10 map {capacity, count, items, strings}}
+//     map items {u16 key (path without extension, string index), u16, group*}, sorted by key;
+//     group {u16, u16 key, node* first}; node (20 bytes) {group*, next, loaded, u16 folder,
+//     u16 name, u32 size}
+//   scene +0x15C0 folders (0x26 bytes {name, u16 parent, u16 name length}), +0x15C4 count: sized
+//     exactly from the PAK header, so it must grow before a folder is added
+//   scene +0x17DC string table (grows as needed)
+inline constexpr uint32_t kSceneLoadResource = 0x00050930;
+inline constexpr uint32_t kSceneIsDeclared = 0x0004BDA0;   // thiscall scene (const EFilePath*, int typeId) -> bool
+inline constexpr uint32_t kSceneTypeTables = 0x14F8;
+inline constexpr uint32_t kSceneFolders = 0x15C0;
+inline constexpr uint32_t kSceneFolderCount = 0x15C4;
+inline constexpr uint32_t kSceneFolderSize = 0x26;
+inline constexpr uint32_t kTypeTableMap = 0x10;
+inline constexpr uint32_t kSceneAddString = 0x0004F160;    // thiscall scene (const char*) -> u16 index
+// The scene's string table (StdStringTable): {+0 capacity, +4 free bytes, +8 used, +0xC offsets,
+// +0x18 buffer}; growing (thiscall, 0x2B600) doubles the buffer and moves it.
+inline constexpr uint32_t kSceneStrings = 0x17DC;
+inline constexpr uint32_t kStringTableFree = 0x04;
+inline constexpr uint32_t kStringTableGrow = 0x0002B600;
+inline constexpr uint32_t kNodeSetPath = 0x00055250;       // thiscall node (const EFilePath*, scene); adds folders
+inline constexpr uint32_t kResourceMapFind = 0x00055CC0;   // thiscall map (const char* key) -> index or -1
+inline constexpr uint32_t kResourceMapInsert = 0x00056610; // thiscall map (u16 key, group*)
+inline constexpr uint32_t kEnginePathKey = 0x00233200;     // thiscall EFilePath (1) -> path without extension
+inline constexpr uint32_t kEnginePathFromText = 0x00233B70; // thiscall EFilePath (const char*, int kind)
+// The game layer's context (set by 0x1FA880). +0x148: the animation lookup object (SceneBoneAnimAPI,
+// vtable 0x564CA8), whose +0x50 means "index not built yet" (0x65C50 builds it and clears the flag).
+inline constexpr uint32_t kGameContext = 0x006966C0;
+inline constexpr uint32_t kGameContextAnimationIndex = 0x148;
+inline constexpr uint32_t kAnimationIndexStale = 0x50;
+// The animation lookup (the lookup object's vtable slot 0): thiscall (script, classInfo, arg,
+// TArray* found, TArray* missing, int), ret 0x18; `missing` ({capacity, count, char** names}) gets
+// the required animations it could not find, which fails the character (0x1F8AB0).
+inline constexpr uint32_t kAnimationLookup = 0x00065C50;
+// Opens a character table (cdecl (const char* name) -> table) at Meshes\Chars\Common\<name>.csv,
+// only if the level declares it ("Couldn't open character table file" otherwise).
+inline constexpr uint32_t kOpenCharacterTable = 0x001B2900;
+// Loads a character's event table (ScriptEvent.cpp; cdecl (character) -> table) at
+// Meshes\Chars\Common\<name>.csv, the name at [[character + 0x434] + 4] + 0x2C (e.g. a_Yoda).
+inline constexpr uint32_t kLoadEventTable = 0x001B2AC0;
+// CharEventManager.cpp: gets or loads an AnimEventTree (s_<character>.xml), cdecl (const EFilePath*).
+inline constexpr uint32_t kLoadAnimEventTree = 0x0014B5B0;
 inline constexpr uint32_t kEngineServices = 0x00645F7C;  // -> services table (+0x50 alloc, +0x38 engine core)
 // Renderer object = [[kEngineServices] + 0x38] + 8; its int fpsLimit (vars_xbox.cfg) drives the frame limiter.
 inline constexpr uint32_t kRendererFpsLimit = 0xB8;
@@ -67,6 +129,18 @@ inline constexpr uint32_t kHashBuckets = 0x0C;        // from the owner: +4 tabl
 // Variable objects: vtable {Get(TString* out), Set(const TString* in), TypeName()}, +0x10 -> the value.
 inline constexpr uint32_t kTStringCtor = 0x00225100;  // thiscall (): empty string
 inline constexpr uint32_t kTStringDtor = 0x00225230;  // thiscall ()
+// Unlocks everything in the signed-in profile (TVaderGameOptions' developer command "unlockprofile",
+// not registered in the retail build; cdecl ()): story progress, the fighters' unlock bytes
+// (+0x2A8..), arenas, bonus missions, concept art. The profile is saved with it by the game.
+inline constexpr uint32_t kUnlockProfile = 0x002E59F0;
+// Versus character select (ShellSelectJediHandlers.cpp): class names of its 9 duelists (IAnakin,
+// IObiwan, IDooku, IGrievous, IMace, ISerra, ICinDrallig, IVader, IOldObiwan). Confirming copies the
+// chosen entries to the player setting (options +0xAC) and the duel's player 1/2 classes.
+inline constexpr uint32_t kDuelistClasses = 0x00650C08;
+inline constexpr int kDuelistCount = 9;
+// Character variant per duelist slot and player (int [slot * 2 + player]): Anakin and Obi-Wan use their
+// duel variants (Anakin_Duel, ...), the others 0.
+inline constexpr uint32_t kDuelistVariants = 0x005CC1C0;
 inline constexpr uint32_t kUnhandledExceptionFilter = 0x004A319F;
 inline constexpr uint32_t kXMountUtilityDrive = 0x004A0A7B;
 inline constexpr uint32_t kXFormatUtilityDrive = 0x004A0B80;

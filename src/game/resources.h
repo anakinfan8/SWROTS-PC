@@ -1,12 +1,48 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
+#include <vector>
 
 namespace swrots::game {
 
 // Hooks the engine's resource reader so loose files under mods\ override
-// resources inside the level PAKs. A non-empty `dumpDir` saves every resource's
-// raw bytes there as it loads; `logResources` logs every resource read.
-void InstallResourceHooks(const std::wstring& gameData, const std::wstring& modsDir, const std::wstring& dumpDir, bool logResources);
+// resources inside the level PAKs. Generated resources are written under `cacheDir`\disc. A
+// non-empty `dumpDir` saves every resource's raw bytes there as it loads; `logResources` logs every
+// resource read.
+void InstallResourceHooks(const std::wstring& gameData, const std::wstring& modsDir, const std::wstring& cacheDir,
+    const std::wstring& dumpDir, bool logResources);
+
+// True when a level PAK on the disc (or a copy under mods\pak) has `lowerName` (relative, e.g.
+// "cinematics\introcamera\anakin_intro_cam.cin") with its data.
+bool DiscHasResource(const std::string& lowerName);
+
+// Edits a resource's data as a PAK serves it, before the engine decodes it (a loose copy under
+// mods\ is used as it is). `lowerName` is relative and the name the engine asks for, e.g.
+// "interfc\front_end\xml\select_jedi.xml" (in the PAK, the compiled select_jedi.xbl_xml);
+// the patch changes `data` in place. Memory-image resources cannot be patched.
+using ResourcePatch = void (*)(std::vector<uint8_t>& data);
+void RegisterResourcePatch(const std::string& lowerName, ResourcePatch patch);
+
+// Resources no PAK has, made from others when asked for (e.g. a darker copy of a texture). A
+// generator fills `data` with the resource's file contents and returns true when `lowerName`
+// (relative, with its extension) is one it makes; results are kept for the session. The port serves
+// them like PAK resources and declares them in a level that asks for them.
+using ResourceGenerator = bool (*)(const std::string& lowerName, std::vector<uint8_t>& data);
+void RegisterResourceGenerator(ResourceGenerator generator);
+
+// A resource's file contents from the disc's PAKs; false when none has it with its data.
+bool ReadDiscResource(const std::string& lowerName, std::vector<uint8_t>& data);
+
+// The names of the resources on the disc's PAKs starting with `lowerPrefix`.
+std::vector<std::string> DiscResourceNames(const std::string& lowerPrefix);
+
+// Declares a generated resource of `typeId` in the current level, for engine code that checks a
+// resource is declared before asking for it. False when it was declared already or is not made.
+bool DeclareGeneratedResource(const std::string& lowerName, int typeId);
+
+// Declares and loads a generated resource in the current level now, for engine code that only
+// finds resources already loaded (a menu's pictures, by name). False when it did not load.
+bool LoadGeneratedResource(const std::string& lowerName, int typeId);
 
 } // namespace swrots::game

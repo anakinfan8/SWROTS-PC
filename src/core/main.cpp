@@ -127,7 +127,8 @@ static void StartGame(const void* launchData)
     debug::InstallConsoleHooks();
     game::InstallDevOptions(g_Boot.debugDisplays);
     game::InstallGameFixes();
-    game::InstallResourceHooks(g_Boot.paths.gameData, g_Boot.paths.mods, g_Boot.dumpDir, g_Boot.logResources);
+    game::InstallResourceHooks(g_Boot.paths.gameData, g_Boot.paths.mods, g_Boot.paths.cache, g_Boot.dumpDir,
+        g_Boot.logResources);
     audio::InitXboxGlobals();
 
     const XbeHeader& h = g_Xbe.Header();
