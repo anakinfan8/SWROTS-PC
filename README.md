@@ -11,6 +11,8 @@ game code, art, audio or other game data.
 > through level changes, restarts and saving. It has not been played through from start to finish
 > yet. Expect bugs; [reports](#reporting-problems) are very welcome.
 
+What's new in each release: [changelog](CHANGELOG.md).
+
 ## Features
 
 - Runs natively as a 32-bit Windows program: no emulation layer.
@@ -65,6 +67,7 @@ and controller layouts: [controls](docs/controls.md).
 | [Debug menu](docs/debug-menu.md) | The game's console, variables and debug displays |
 | [Modding](docs/modding/README.md) | Loose-file mods, dumping assets, textures, character swaps |
 | [How it works](docs/architecture.md) | The port's design, for the curious and for contributors |
+| [Changelog](CHANGELOG.md) | What changed in each release |
 | [All documentation](docs/README.md) | Including research notes on the game's engine |
 
 ## Known issues
