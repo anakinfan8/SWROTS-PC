@@ -26,6 +26,7 @@ Up/Down recall earlier commands.
 | `set <variable> <value>` | changes a variable, e.g. `set timeScale 0.5`, `set god true` |
 | `<variable>=<value>` | the same, in the `vars_xbox.cfg` form |
 | `toggle <variable>` | flips an on/off variable |
+| `unlockprofile` | the game's developer cheat: unlocks everything in the signed-in profile (story, fighters, arenas, bonus missions, concept art); the game saves it with the profile, so back up `saves\` first to keep your progress |
 | `clear` | empties the console (also the Clear button) |
 | anything else | runs through the game's console: the game's own commands |
 

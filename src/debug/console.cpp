@@ -228,6 +228,7 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  get <variable>");
     Print(LineKind::Output, "  toggle <variable>        (on/off variables)");
     Print(LineKind::Output, "  listvars [text]          all variables, or those whose name contains text");
+    Print(LineKind::Output, "  unlockprofile            unlock everything in the signed-in profile (it is saved with it)");
     Print(LineKind::Output, "  clear                    empties this window");
     Print(LineKind::Output, "  help");
     Print(LineKind::Port, "Game commands:");
@@ -310,10 +311,15 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         ClearConsole();
         return true;
     }
-    if (command != "help" && command != "listvars" && command != "get" && command != "set" && command != "toggle")
+    if (command != "help" && command != "listvars" && command != "get" && command != "set" && command != "toggle" &&
+        command != "unlockprofile")
         return false;
     Print(LineKind::Output, "> %s", line.c_str());
-    if (command == "help") {
+    if (command == "unlockprofile") {
+        // The game's own developer command (TVaderGameOptions), not registered in the retail build.
+        reinterpret_cast<void(__cdecl*)()>(uintptr_t(game::kUnlockProfile))();
+        Print(LineKind::Output, "  unlocked: story, fighters, arenas, bonus missions, concept art (saved with the profile)");
+    } else if (command == "help") {
         Help(console);
     } else if (command == "listvars") {
         ListVars(console, words.size() > 1 ? words[1] : "");

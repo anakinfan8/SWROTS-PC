@@ -33,6 +33,7 @@ Things the Xbox release never had:
   disc kept for him; always unlocked, and Random can pick him. No settings or debug options needed.
 - **Sith Yoda.** In Yoda against Yoda, player 2 is a dark Yoda with a red saber, as the game's own
   fighters get a different look against themselves.
+- **Unlock everything** with the developers' own cheat, `unlockprofile` (debug console).
 - **The game's hidden debug console and displays**, and **loose-file mods** without rebuilding
   archives.
 
