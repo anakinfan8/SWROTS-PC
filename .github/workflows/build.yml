@@ -42,7 +42,7 @@ jobs:
           $name = if ($env:GITHUB_REF_TYPE -eq 'tag') { "SWROTS-PC-$env:GITHUB_REF_NAME" } else { "SWROTS-PC-$($env:GITHUB_SHA.Substring(0,7))" }
           $dir = "package/$name"
           New-Item -ItemType Directory -Force $dir | Out-Null
-          Copy-Item build/bin/swrots.exe, build/bin/core.dll, README.md, LICENSE, THIRD_PARTY_NOTICES.md $dir
+          Copy-Item build/bin/swrots.exe, build/bin/core.dll, README.md, CHANGELOG.md, LICENSE, THIRD_PARTY_NOTICES.md $dir
           Copy-Item -Recurse docs "$dir/docs"
           Compress-Archive -Path "$dir/*" -DestinationPath "package/$name.zip"
           "PACKAGE=$name" >> $env:GITHUB_ENV
@@ -54,6 +54,28 @@ jobs:
 
       - name: Release
         if: github.ref_type == 'tag'
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" "package/${{ env.PACKAGE }}.zip" --title "${{ github.ref_name }}" --generate-notes --prerelease
+        run: |
+          # The release notes are the version's section of CHANGELOG.md ("## [vX.Y.Z]" up to the next
+          # "## "); without one, GitHub's generated notes.
+          $tag = "${{ github.ref_name }}"
+          $notes = @()
+          $inSection = $false
+          foreach ($line in Get-Content CHANGELOG.md) {
+            if ($line.StartsWith("## ")) {
+              if ($inSection) { break }
+              $inSection = $line.StartsWith("## [$tag]")
+              continue
+            }
+            if ($inSection) { $notes += $line }
+          }
+          $zip = "package/${{ env.PACKAGE }}.zip"
+          if ($notes.Count -gt 0) {
+            $notes += "", "All releases: [changelog](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)"
+            Set-Content -Path release-notes.md -Value $notes -Encoding utf8
+            gh release create $tag $zip --title $tag --notes-file release-notes.md --prerelease
+          } else {
+            gh release create $tag $zip --title $tag --generate-notes --prerelease
+          }

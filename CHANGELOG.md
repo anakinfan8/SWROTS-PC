@@ -25,7 +25,7 @@ A fix for missing audio and frozen cutscenes.
 ### Added
 
 - For contributors: `SWROTS_NO_AUDIO=1` runs the game as without an audio device, to test the
-  silent path ([contributing](CONTRIBUTING.md)).
+  silent path ([contributing](https://github.com/jedijosh920/SWROTS-PC/blob/main/CONTRIBUTING.md)).
 
 ## [v0.1.0](https://github.com/jedijosh920/SWROTS-PC/releases/tag/v0.1.0) - 2026-09-28
 
@@ -66,7 +66,7 @@ level changes, restarts and saving.
   copies without rebuilding the level archives; disc files (configs, movies, audio banks) too.
 - Asset dumping (`DumpResources=1`) and resource logging (`LogResources=1`) to find the files a
   level loads and the paths a mod must use.
-- Guides: [modding](docs/modding/README.md), including a worked character swap.
+- Guides: [modding](https://github.com/jedijosh920/SWROTS-PC/blob/main/docs/modding/README.md), including a worked character swap.
 
 ### Developer tools
 
