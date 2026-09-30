@@ -3,7 +3,7 @@
 What changed in each release of SWROTS-PC, newest first. Downloads are on the
 [releases page](https://github.com/jedijosh920/SWROTS-PC/releases).
 
-## [v0.2.0](https://github.com/jedijosh920/SWROTS-PC/releases/tag/v0.2.0) - not released yet
+## [v0.2.0](https://github.com/jedijosh920/SWROTS-PC/releases/tag/v0.2.0) - 2026-09-30
 
 Yoda joins Versus.
 
