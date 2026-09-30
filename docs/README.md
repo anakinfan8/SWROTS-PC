@@ -14,6 +14,7 @@
 - [Dumping assets](modding/dumping-assets.md): extracting the files a level loads
 - [Replacing textures](modding/replacing-textures.md)
 - [Swapping characters](modding/swapping-characters.md): a worked example
+- [Adding versus fighters](modding/adding-versus-fighters.md): a select-screen slot of its own, as Yoda has
 - [How loading works](modding/how-loading-works.md): level archives and what the port changes
 - [File formats](modding/file-formats.md): PAK, STX, MSH and more
 
@@ -31,3 +32,4 @@ Notes on the game's engine, from its own executable and from related games.
   arguments, the mission list, what the retail build left out
 - [Indiana Jones and the Emperor's Tomb](research/indiana-jones.md): the same engine, with symbol maps
 - [The PS2 version](research/ps2-build.md): what its disc contains that the Xbox one does not
+- [The versus roster](research/versus-roster.md): how Yoda became a versus fighter, with addresses

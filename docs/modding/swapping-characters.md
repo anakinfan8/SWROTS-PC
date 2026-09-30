@@ -68,9 +68,10 @@ open("mods/meshes/chars/anakinhooddown/anakinhooddown.stx", "wb").write(stx)
 - **Texture names.** The replacement mesh's texture names must be renamed to names that
   already exist in the target folder, at equal length. A tool that rewrites a mesh's string
   table properly would remove this limit.
-- **Which characters are available.** A model can only be used where it is available: in the
-  level's PAK, or with all of its files provided loose, including animations for new skeletons.
-  Adding a character a level never had (Vader in Order 66, Yoda in a VS arena) is not done yet.
+- **Which characters are available.** A character a level never had is loaded from any PAK on the
+  disc that has it (see [how loading works](how-loading-works.md#what-the-port-changes)); that is
+  how Yoda fights in a versus arena. Characters that are not on the disc need all of their files
+  provided loose, including animations for new skeletons, which is not possible yet.
 - **HUD portraits.** These are separate textures (`interfc\hud_b\hud_face_*.stx`) and must be
   swapped separately.
 

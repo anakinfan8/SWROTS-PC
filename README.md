@@ -21,7 +21,23 @@ What's new in each release: [changelog](CHANGELOG.md).
 - Keyboard and mouse, Xbox controllers, and PlayStation controllers (DualShock 4, DualSense) with rumble.
 - Level changes and mission restarts happen in the same window, like on the console.
 - Mods as loose files: replace textures, models and other game files without rebuilding archives.
+- Yoda as a versus fighter with his own select-screen slot (the game's planned but unfinished
+  fighter), and characters a level never had loaded from the rest of the disc.
 - A developer menu with the game's own debug console and its hidden debug displays.
+
+## Port exclusives
+
+Things the Xbox release never had:
+
+- **Playable Yoda in Versus.** His own cell on the select screen, with the name, title and bust the
+  disc kept for him; always unlocked, and Random can pick him. No settings or debug options needed.
+- **Sith Yoda.** In Yoda against Yoda, player 2 is a dark Yoda with a red saber, as the game's own
+  fighters get a different look against themselves.
+- **The game's hidden debug console and displays**, and **loose-file mods** without rebuilding
+  archives.
+
+How Yoda was added, for developers: [the versus roster](docs/research/versus-roster.md) and
+[adding versus fighters](docs/modding/adding-versus-fighters.md).
 
 ## Quick start
 
@@ -76,8 +92,9 @@ and controller layouts: [controls](docs/controls.md).
 - 60 fps (`FpsLimit=60`) is experimental: some of the game's logic is timed for 30 fps.
 - The keyboard and the first controller are both player 1; two-player modes need two controllers.
 - Controllers other than Xbox (XInput) and PlayStation ones need Steam Input or a similar translator.
-- Some modding limits: animations stored in a level's memory image (most `.bnm`, `.ban`) cannot be
-  replaced yet, and loose text resources in folders the disc also has (e.g. `gameinfo\`) fail to load.
+- Some modding limits: animations stored in a level's memory image (most `.bnm`) cannot be replaced
+  by loose files yet, and loose text resources in folders the disc also has (e.g. `gameinfo\`) fail
+  to load.
 - Only the North American release is supported.
 
 See the [issue tracker](../../issues) for the current list.
@@ -93,7 +110,9 @@ the run before. Say what you were doing, which level, and whether it happens eve
 - PC button prompts and wording (keyboard, mouse and PlayStation icons).
 - Proper 60 fps and higher (the engine has fixed-step simulation to build on).
 - An in-game settings menu, keyboard as its own player for versus modes, more controllers.
-- Modding tools: a character swap tool, dumping and replacing animations, adding content to levels.
+- More versus fighters from the disc (the framework for Yoda's slot takes more), Yoda's own duel
+  intro, and a darker player-2 bust and HUD portrait for Sith Yoda.
+- Modding tools: a character swap tool, dumping and replacing animations.
 - A full playthrough on many machines, and a stable 1.0.
 
 ## Building from source

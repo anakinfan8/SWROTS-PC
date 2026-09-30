@@ -33,6 +33,23 @@ Variables take effect immediately. To set them at every start, put them in `mods
 (`name=value`, one per line). The full list with descriptions is in
 [engine variables](research/engine-variables.md).
 
+### Versus fighters
+
+Yoda has his own cell on the versus select screen, after Random, with his name, title and bust; he
+fights like any fighter (he is always unlocked, and Random can pick him), with Anakin's intro and
+win cameras (the disc has none of his own). He was made for fighting clones and droids, so he has
+no reactions of his own for most of what a duelist does to him and uses Anakin's; the port gives him
+his own block reaction for a duelist's blows (Anakin's blocks left him floating).
+Some reactions can still look off. In Yoda against Yoda, player 2 is a dark "Sith" Yoda
+with a red saber, as the game's own fighters have a different look against themselves; the port
+makes his darker textures from the normal ones. Yoda is otherwise untouched. He has no full-body
+picture on the disc, so the arena screen shows his bust (both players' are the normal bust). The
+port loads him from the Jedi Temple level's PAK only for duels he is in.
+
+Besides Yoda, the select screen has the game's nine fighters, slots 0-8: `IAnakin`, `IObiwan`,
+`IDooku`, `IGrievous`, `IMace`, `ISerra`, `ICinDrallig`, `IVader`, `IOldObiwan`. How Yoda was added,
+and how to add more fighters: [adding versus fighters](modding/adding-versus-fighters.md).
+
 Some of the game's commands:
 
 - `sabercolor <blue|green|red|purple> <r> <g> <b>` redefines a blade colour (0-255 each), e.g.

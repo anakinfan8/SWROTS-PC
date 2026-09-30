@@ -20,10 +20,13 @@
 #include "d3d/recorder.h"
 #include "debug/console.h"
 #include "debug/menu.h"
+#include "game/aliases.h"
 #include "game/devoptions.h"
 #include "game/fixes.h"
 #include "game/game.h"
 #include "game/resources.h"
+#include "game/roster.h"
+#include "game/versus.h"
 #include "d3d/d3d.h"
 #include "input/controls.h"
 #include "kernel/kernel.h"
@@ -127,6 +130,9 @@ static void StartGame(const void* launchData)
     debug::InstallConsoleHooks();
     game::InstallDevOptions(g_Boot.debugDisplays);
     game::InstallGameFixes();
+    game::InstallVersus();
+    game::InstallRoster();
+    game::InstallAnimationAliases();
     game::InstallResourceHooks(g_Boot.paths.gameData, g_Boot.paths.mods, g_Boot.paths.cache, g_Boot.dumpDir,
         g_Boot.logResources);
     audio::InitXboxGlobals();

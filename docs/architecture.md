@@ -79,10 +79,23 @@ to trap loudly, except pure computation that is safe to run as-is (`SDK_PASSTHRO
 ## The game's own systems (`src/game/`, `src/debug/`)
 
 - `game.h`: facts about the executable (addresses, structure offsets), each with a comment.
-- `resources.cpp`, `pak.cpp`: mod loading. Level archives (`.pak`) are read as one stream; the port
-  decodes loose replacements instead of the packed copies and keeps the stream in step.
+- `resources.cpp`, `pak.cpp`: resource loading. Level archives (`.pak`) are read as one stream; the
+  port decodes loose replacements instead of the packed copies and keeps the stream in step, loads
+  what a level's archive lacks from the other archives on the disc (including animations and manual
+  entries), and declares resources a level never listed, so characters from other levels can be
+  used. See [how loading works](modding/how-loading-works.md).
+- `versus.cpp`: versus mode: variants and duel cameras for fighters the duel was not made for.
+- `roster.cpp`: versus fighters beyond the game's nine (Yoda): their select-screen cells (pictures
+  added to the menu as it loads), names, locks, Random, the duel's per-slot tables, and a player 2
+  look (darkened textures) for a fighter against itself. One table
+  row per fighter.
+- `aliases.cpp`: sequences added to a character class's animation alias list (which of its own
+  animations it plays for a sequence it inherits): Yoda's blocks against duelists, which otherwise
+  play Anakin's and leave him floating.
+- `characters.cpp`: choosing a character variant whose model is on the disc.
 - `devoptions.cpp`: the engine's developer variables (`vars_xbox.cfg`), its hidden debug displays.
-- `fixes.cpp`: guards against bugs in the game's own code that the developer tools can trigger.
+- `fixes.cpp`: guards against bugs in the game's own code that the developer tools (or content a
+  level was not built with) can trigger.
 - `src/debug/`: the debug menu (Dear ImGui) and the bridge to the game's own console, whose window
   and output the retail build left out. See [debug menu](debug-menu.md).
 
