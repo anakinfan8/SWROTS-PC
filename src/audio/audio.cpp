@@ -191,21 +191,52 @@ struct Listener {
     float distanceFactor = 1.0f, rolloffFactor = 1.0f, dopplerFactor = 1.0f;
 } g_Listener;
 
+static bool g_AudioFailed = false; // no audio device or engine: buffers keep time silently
+
 static bool EnsureEngine()
 {
     if (g_XAudio)
         return true;
-    HRESULT hr = XAudio2Create(&g_XAudio, 0, XAUDIO2_DEFAULT_PROCESSOR);
+    if (g_AudioFailed)
+        return false;
+    QueryPerformanceFrequency(&g_QpcFreq);
+    QueryPerformanceCounter(&g_StartQpc);
+    // The mastering voice opens the audio device through COM (MMDevice API), which needs COM on the
+    // calling thread or a multithreaded apartment in the process. Game threads never initialize COM, and
+    // whether something else in the process has (the installer's dialogs do; on some systems input or
+    // graphics libraries) varies, so the process keeps one for good. It changes no thread's apartment.
+    APTTYPE apartment;
+    APTTYPEQUALIFIER qualifier;
+    HRESULT com = CoGetApartmentType(&apartment, &qualifier);
+    LOG_DEBUG("Audio: COM on this thread before audio: %08lX (apartment %d, qualifier %d)", com, int(apartment),
+        int(qualifier));
+    static CO_MTA_USAGE_COOKIE mtaCookie = nullptr;
+    if (!mtaCookie && FAILED(CoIncrementMTAUsage(&mtaCookie)))
+        mtaCookie = nullptr;
+    // Development aid: SWROTS_NO_AUDIO=1 runs the game as without an audio device.
+    HRESULT hr = GetEnvironmentVariableA("SWROTS_NO_AUDIO", nullptr, 0) ? E_FAIL
+                                                                        : XAudio2Create(&g_XAudio, 0, XAUDIO2_DEFAULT_PROCESSOR);
     if (SUCCEEDED(hr))
         hr = g_XAudio->CreateMasteringVoice(&g_Master, 2, 48000);
     if (FAILED(hr)) {
-        LOG_ERROR("XAudio2 initialisation failed (%08lX); audio disabled", hr);
+        LOG_ERROR("XAudio2 initialisation failed (%08lX); the game runs without sound", hr);
+        if (g_XAudio) {
+            g_XAudio->Release();
+            g_XAudio = nullptr;
+        }
+        g_Master = nullptr;
+        g_AudioFailed = true;
         return false;
     }
-    QueryPerformanceFrequency(&g_QpcFreq);
-    QueryPerformanceCounter(&g_StartQpc);
     LOG_INFO("Audio: XAudio2 ready (48 kHz stereo)");
     return true;
+}
+
+static LONGLONG QpcNow()
+{
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    return now.QuadPart;
 }
 
 static float DbToGain(LONG hundredthsDb)
@@ -395,6 +426,25 @@ struct SoundBuffer : Voice {
     UINT64 startSample = 0;   // voice SamplesPlayed when playback (re)started
     DWORD startOffset = 0;    // sample offset playback started at
     volatile LONG ended = 0;
+    // Without an audio engine a buffer still plays, silently, on the clock: the game paces movies and
+    // scripts by play positions and ends of sounds, which would otherwise never move.
+    bool silent = false;
+    LONGLONG silentStart = 0;    // QPC when silent playback (re)started, moved on by pauses
+    LONGLONG silentPausedAt = 0; // QPC when paused
+
+    UINT64 SilentSamplesPlayed() const
+    {
+        LONGLONG elapsed = (paused ? silentPausedAt : QpcNow()) - silentStart;
+        return elapsed <= 0 ? 0 : UINT64(elapsed) * format.nSamplesPerSec / UINT64(std::max<LONGLONG>(1, g_QpcFreq.QuadPart));
+    }
+
+    void SilentPause(bool pause)
+    {
+        if (pause)
+            silentPausedAt = QpcNow();
+        else
+            silentStart += QpcNow() - silentPausedAt;
+    }
 
     DWORD TotalSamples() const
     {
@@ -419,8 +469,19 @@ struct SoundBuffer : Voice {
 
     void Submit(DWORD fromSample)
     {
-        if (!data || !bytes || !CreateSource())
+        if (!data || !bytes)
             return;
+        if (!CreateSource()) {
+            DWORD total = TotalSamples();
+            silent = g_AudioFailed && total && format.nSamplesPerSec;
+            if (silent) {
+                startOffset = fromSample % total;
+                silentStart = QpcNow();
+                ended = 0;
+            }
+            return;
+        }
+        silent = false;
         source->Stop();
         source->FlushSourceBuffers();
         XAUDIO2_BUFFER b = {};
@@ -454,6 +515,15 @@ struct SoundBuffer : Voice {
 
     DWORD CurrentSample()
     {
+        if (silent && playing) {
+            DWORD total = std::max<DWORD>(1, TotalSamples());
+            UINT64 position = startOffset + SilentSamplesPlayed();
+            if (!looping && position >= total) {
+                InterlockedExchange(&ended, 1);
+                return 0;
+            }
+            return DWORD(position % total);
+        }
         if (!source || !playing)
             return startOffset;
         XAUDIO2_VOICE_STATE st;
@@ -470,6 +540,8 @@ struct SoundBuffer : Voice {
 
     bool IsPlaying()
     {
+        if (silent && playing && !looping)
+            CurrentSample(); // notes the end
         if (playing && ended) {
             // A one-shot buffer that played to its end rewinds, like on the Xbox.
             playing = false;
@@ -887,7 +959,10 @@ static HRESULT __stdcall XbBufPlay(SoundBuffer* b, DWORD, DWORD, DWORD flags)
     bool loop = (flags & DSBPLAY_LOOPING) != 0;
     bool playing = b->IsPlaying();
     if (b->paused && playing && !(flags & DSBPLAY_FROMSTART)) {
-        b->source->Start();
+        if (b->source)
+            b->source->Start();
+        else if (b->silent)
+            b->SilentPause(false);
         b->paused = false;
         return S_OK;
     }
@@ -905,11 +980,12 @@ static HRESULT __stdcall XbBufPlay(SoundBuffer* b, DWORD, DWORD, DWORD flags)
     }
     DWORD from = (flags & DSBPLAY_FROMSTART) ? 0 : (playing ? b->CurrentSample() : b->startOffset);
     b->looping = loop;
+    b->paused = false;
     b->Submit(from);
-    if (b->source) {
-        b->source->Start();
+    if (b->source || b->silent) {
+        if (b->source)
+            b->source->Start();
         b->playing = true;
-        b->paused = false;
     }
     return S_OK;
 }
@@ -917,10 +993,12 @@ static HRESULT __stdcall XbBufPlay(SoundBuffer* b, DWORD, DWORD, DWORD flags)
 static HRESULT __stdcall XbBufStop(SoundBuffer* b)
 {
     std::lock_guard<std::recursive_mutex> lock(g_Lock);
-    if (b->source && b->playing) {
+    if ((b->source || b->silent) && b->playing) {
         b->startOffset = b->CurrentSample();
-        b->source->Stop();
-        b->source->FlushSourceBuffers();
+        if (b->source) {
+            b->source->Stop();
+            b->source->FlushSourceBuffers();
+        }
     }
     b->playing = false;
     b->paused = false;
@@ -930,13 +1008,19 @@ static HRESULT __stdcall XbBufStop(SoundBuffer* b)
 static HRESULT __stdcall XbBufPause(SoundBuffer* b, DWORD pause)
 {
     std::lock_guard<std::recursive_mutex> lock(g_Lock);
-    if (!b->source)
+    if (!b->source && !b->silent)
         return S_OK;
-    if (pause & 1) {
-        b->source->Stop();
+    if ((pause & 1) && !b->paused) {
+        if (b->source)
+            b->source->Stop();
+        else
+            b->SilentPause(true);
         b->paused = true;
-    } else if (b->paused) {
-        b->source->Start();
+    } else if (!(pause & 1) && b->paused) {
+        if (b->source)
+            b->source->Start();
+        else
+            b->SilentPause(false);
         b->paused = false;
     }
     return S_OK;
@@ -972,7 +1056,10 @@ static HRESULT __stdcall XbBufSetCurrentPosition(SoundBuffer* b, DWORD offset)
     DWORD sample = b->ByteToSample(offset);
     if (b->IsPlaying()) {
         b->Submit(sample);
-        b->source->Start();
+        if (b->source && !b->paused)
+            b->source->Start();
+        else if (b->silent && b->paused)
+            b->silentPausedAt = b->silentStart; // resumes from the new position
     } else {
         b->startOffset = sample;
     }

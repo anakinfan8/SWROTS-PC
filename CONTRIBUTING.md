@@ -59,7 +59,8 @@ Environment variables: `SWROTS_NO_DIALOGS=1` (no message boxes, for unattended r
 `SWROTS_WATCHDOG=<seconds>` (dumps every game thread's stack after that time, for hangs),
 `SWROTS_DRAWLOG_FRAME=<n>` or F11 (logs every draw of one frame), `SWROTS_SHADER_DUMP=<dir>`
 (writes the generated HLSL shaders), `SWROTS_ALL_CORES=1` (lets game threads use every CPU core;
-for tests only, the game expects one).
+for tests only, the game expects one), `SWROTS_NO_AUDIO=1` (runs as without an audio device: the
+game plays silently, movies and sounds keeping time on the clock).
 
 ## Finding your way around
 
