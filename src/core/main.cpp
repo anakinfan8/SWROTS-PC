@@ -24,6 +24,7 @@
 #include "game/characters.h"
 #include "game/devoptions.h"
 #include "game/fixes.h"
+#include "game/freecam.h"
 #include "game/game.h"
 #include "game/resources.h"
 #include "game/roster.h"
@@ -137,6 +138,7 @@ static void StartGame(const void* launchData)
     game::InstallCharacters();
     game::InstallResourceHooks(g_Boot.paths.gameData, g_Boot.paths.mods, g_Boot.paths.cache, g_Boot.dumpDir,
         g_Boot.logResources);
+    game::InstallFreeCamera();
     audio::InitXboxGlobals();
 
     const XbeHeader& h = g_Xbe.Header();

@@ -12,6 +12,7 @@
 
 #include "core/log.h"
 #include "core/patch.h"
+#include "game/freecam.h"
 #include "game/game.h"
 #include "game/characters.h"
 #include "game/versus.h"
@@ -239,6 +240,7 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  variants <class>         a character class's costumes");
     Print(LineKind::Output, "  meshes [text]            the character meshes on the disc (those containing text)");
     Print(LineKind::Output, "  unlockprofile            unlock everything in the signed-in profile (it is saved with it)");
+    Print(LineKind::Output, "  freecam [on|off]         free camera: fly the view, the player stands still");
     Print(LineKind::Output, "  clear                    empties this window");
     Print(LineKind::Output, "  help");
     Print(LineKind::Port, "Game commands:");
@@ -494,6 +496,24 @@ void Meshes(const std::vector<std::string>& words)
     Print(LineKind::Output, "  %zu mesh(es); use one with player mesh <mesh> or player <class> mesh <mesh>", meshes.size());
 }
 
+void FreeCamera(const std::vector<std::string>& words)
+{
+    if (words.size() == 1) {
+        game::SetFreeCamera(!game::FreeCameraOn());
+    } else if (words.size() == 2 && (_stricmp(words[1].c_str(), "on") == 0 || _stricmp(words[1].c_str(), "off") == 0)) {
+        game::SetFreeCamera(_stricmp(words[1].c_str(), "on") == 0);
+    } else {
+        Print(LineKind::Error, "freecam [on|off]");
+        return;
+    }
+    if (game::FreeCameraOn()) {
+        Print(LineKind::Output, "  free camera on (close this menu to fly): mouse / right stick look, W A S D / left stick move,");
+        Print(LineKind::Output, "  E Q / RB LB up and down, Shift / RT faster, Alt / LT slower, wheel / D-pad base speed");
+    } else {
+        Print(LineKind::Output, "  free camera off");
+    }
+}
+
 // Returns false when the line is for the game's own console.
 bool RunPortCommand(uint8_t* console, const std::string& line)
 {
@@ -520,7 +540,8 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
     }
     if (command != "help" && command != "listvars" && command != "get" && command != "set" && command != "toggle" &&
         command != "duelist" && command != "player" && command != "variants" && command != "meshes" &&
-        command != "restart" && command != "autorestart" && command != "unlockprofile")
+        command != "restart" && command != "autorestart" && command != "unlockprofile" &&
+        command != "freecam")
         return false;
     Print(LineKind::Output, "> %s", line.c_str());
     if (command == "duelist") {
@@ -535,6 +556,8 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         Restart();
     } else if (command == "autorestart") {
         AutoRestart(words);
+    } else if (command == "freecam") {
+        FreeCamera(words);
     } else if (command == "unlockprofile") {
         // The game's own developer command (TVaderGameOptions), not registered in the retail build.
         reinterpret_cast<void(__cdecl*)()>(uintptr_t(game::kUnlockProfile))();
@@ -604,7 +627,7 @@ void RunQueuedConsoleCommands()
             // and gone while a level loads).
             const std::vector<std::string> words = Words(line);
             static const char* const kStandalone[] = { "player", "variants", "meshes", "restart", "autorestart",
-                "duelist", "clear", "cls" };
+                "duelist", "freecam", "clear", "cls" };
             const bool standalone = !words.empty() && std::any_of(std::begin(kStandalone), std::end(kStandalone),
                 [&](const char* c) { return _stricmp(words[0].c_str(), c) == 0; });
             if (standalone) {

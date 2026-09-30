@@ -25,6 +25,24 @@ void LoadControls(const std::wstring& path);
 KeyboardPad ReadKeyboardPad();
 // Raw mouse motion while the game has the mouse (window thread): read as the right stick.
 void AddMouseMotion(LONG dx, LONG dy);
+// Mouse wheel turns while the game has the mouse (window thread), in WHEEL_DELTA units.
+void AddMouseWheel(SHORT delta);
+// Takes the mouse motion and wheel turns since the last call, for the free camera (whose input
+// the game does not get).
+void TakeMouseInput(LONG& dx, LONG& dy, LONG& wheel);
+
+// The free camera's controls: keyboard and mouse, and player 1's controller.
+struct FreeCameraControls {
+    float right, forward, up; // movement, each -1 to 1
+    float lookX, lookY;       // controller look, -1 to 1 (up is positive)
+    LONG mouseDx, mouseDy;    // mouse counts
+    float speed;              // hold multiplier: faster above 1, slower below
+    int speedSteps;           // base speed changes asked for (wheel, D-pad)
+};
+// Reads them (nothing while the game window is inactive or the debug menu is open).
+FreeCameraControls ReadFreeCameraControls();
+// Whether player 1's input is held back from the game (the free camera has it).
+void HoldPlayerInput(bool hold);
 
 // The game rebooted in-process: its controller ports are closed again.
 void ResetPortsForReboot();

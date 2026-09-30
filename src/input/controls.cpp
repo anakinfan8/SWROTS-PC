@@ -197,6 +197,20 @@ void AddMouseMotion(LONG dx, LONG dy)
     g_MouseDy += dy;
 }
 
+std::atomic<LONG> g_MouseWheel = 0;
+
+void AddMouseWheel(SHORT delta)
+{
+    g_MouseWheel += delta;
+}
+
+void TakeMouseInput(LONG& dx, LONG& dy, LONG& wheel)
+{
+    dx = g_MouseDx.exchange(0);
+    dy = g_MouseDy.exchange(0);
+    wheel = g_MouseWheel.exchange(0);
+}
+
 // The mouse's recent motion as a stick position: movement pushes the stick, which springs
 // back to the centre within about a tenth of a second when the mouse stops.
 static void MouseStick(KeyboardPad& pad, bool active)
@@ -205,6 +219,7 @@ static void MouseStick(KeyboardPad& pad, bool active)
     const float dt = g_LastMouseRead ? std::min(float(now - g_LastMouseRead), 100.0f) / 1000.0f : 0.0f;
     g_LastMouseRead = now;
     const LONG dx = g_MouseDx.exchange(0), dy = g_MouseDy.exchange(0);
+    g_MouseWheel = 0; // only the free camera uses it
     if (!active || !g_MouseRightStick) {
         g_StickX = g_StickY = 0.0f;
         return;

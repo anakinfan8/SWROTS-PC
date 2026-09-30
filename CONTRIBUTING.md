@@ -68,7 +68,8 @@ process), `SWROTS_DUELISTS=<slot>=<class>[,...]` (the console's `duelist` change
 `0=IYoda`, for unattended versus tests), `SWROTS_PLAYER="<class>[ <costume>][ skin <set>][ mesh <mesh>]"` (the
 console's `player` from the start, e.g. `IVader` or `"IAnakin duel"`; `-` for the class keeps each
 level's own, e.g. `"- mesh obi"`; the port also sets it itself when a restart falls back to a new
-process, to keep the player's choice).
+process, to keep the player's choice), `SWROTS_FREECAM=<seconds>` (turns the free camera on that long
+after the start, e.g. in a duel booted from `Default_Xbox.cfg`).
 
 ## Finding your way around
 

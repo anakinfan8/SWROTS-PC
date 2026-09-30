@@ -238,9 +238,12 @@ LRESULT CALLBACK GameProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         RAWINPUT raw;
         UINT size = sizeof(raw);
         if (g_MouseCaptured && GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, &raw, &size,
-                sizeof(RAWINPUTHEADER)) != UINT(-1) && raw.header.dwType == RIM_TYPEMOUSE
-            && !(raw.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE))
-            input::AddMouseMotion(raw.data.mouse.lLastX, raw.data.mouse.lLastY);
+                sizeof(RAWINPUTHEADER)) != UINT(-1) && raw.header.dwType == RIM_TYPEMOUSE) {
+            if (!(raw.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE))
+                input::AddMouseMotion(raw.data.mouse.lLastX, raw.data.mouse.lLastY);
+            if (raw.data.mouse.usButtonFlags & RI_MOUSE_WHEEL)
+                input::AddMouseWheel(SHORT(raw.data.mouse.usButtonData));
+        }
         break;
     }
     case WM_SYSKEYDOWN:

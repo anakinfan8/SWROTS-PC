@@ -34,6 +34,7 @@ Up/Down recall earlier commands.
 | `variants <class>` | lists a character class's costumes and texture sets |
 | `meshes [text]` | lists the character bodies on the disc and under `mods\` (those containing the text) |
 | `unlockprofile` | the game's developer cheat: unlocks everything in the signed-in profile (story, fighters, arenas, bonus missions, concept art); the game saves it with the profile, so back up `saves\` first to keep your progress |
+| `freecam [on\|off]` | the free camera (see below); alone, turns it on or off |
 | `clear` | empties the console (also the Clear button) |
 | anything else | runs through the game's console: the game's own commands |
 
@@ -174,6 +175,25 @@ yet; use `duelist` (above) to choose the fighters.
   Obi-Wan, Yoda, Cody and the bodyguard); the port loads them from another level if need be.
 
 How it works, with addresses: [characters](research/characters.md).
+
+### Free camera
+
+`freecam` detaches the view from the game's camera, starting where it was, and lets you fly it
+anywhere; the player stands still (your input goes to the camera), and the game keeps running as
+it was. Close the debug menu to fly. `freecam` again (or `freecam off`) gives the view and the
+controls back. It is off again after a level change or restart.
+
+| | Keyboard and mouse | Controller |
+|---|---|---|
+| Look | Mouse | Right stick |
+| Move | W A S D | Left stick |
+| Up / down | E or Space / Q or Ctrl | RB / LB |
+| Faster / slower while held | Shift / Alt | RT / LT |
+| Base speed | Mouse wheel | D-pad up / down |
+
+For screenshots, freeze the game and hide the HUD first: `set timeScale 0` and `set hud 0` (and
+`set timeScale 1`, `set hud 1` afterwards). The level may leave out parts of itself far from where
+the player is.
 
 Some of the game's commands:
 

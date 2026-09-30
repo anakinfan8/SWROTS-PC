@@ -102,6 +102,8 @@ to trap loudly, except pure computation that is safe to run as-is (`SDK_PASSTHRO
 - `fixes.cpp`: guards against bugs in the game's own code that the developer tools (or content a
   level was not built with) can trigger, e.g. in rebuilding a body's animation binding for another
   class.
+- `freecam.cpp`: the free camera: the master camera's transform replaced by a flown one, player 1's
+  input held back from the game meanwhile (`input.cpp`).
 - `src/debug/`: the debug menu (Dear ImGui: the Console, Characters and Switches tabs) and the
   bridge to the game's own console, whose window and output the retail build left out. See
   [debug menu](debug-menu.md).

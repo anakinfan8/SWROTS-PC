@@ -8,12 +8,15 @@
 #include <windows.h>
 #include <Xinput.h>
 
+#include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <mutex>
 #include <vector>
 
 #include "core/log.h"
 #include "core/window.h"
+#include "debug/menu.h"
 #include "input/controls.h"
 #include "input/playstation.h"
 #include "game/game.h"
@@ -197,6 +200,74 @@ static void ReadKeyboard(XGamepad& g)
 }
 
 // ---------------------------------------------------------------------------
+// Free camera
+// ---------------------------------------------------------------------------
+static std::atomic<bool> g_HoldPlayer = false;
+
+void HoldPlayerInput(bool hold)
+{
+    g_HoldPlayer = hold;
+}
+
+static float Stick(SHORT value)
+{
+    constexpr float kDeadZone = 0.2f;
+    float v = value / 32768.0f;
+    if (v > -kDeadZone && v < kDeadZone)
+        return 0.0f;
+    return (v - (v > 0 ? kDeadZone : -kDeadZone)) / (1.0f - kDeadZone);
+}
+
+// Modern free-camera controls. Keyboard and mouse: mouse to look, W A S D to move, E / Space up,
+// Q / Ctrl down, hold Shift faster and Alt slower, the wheel for the base speed. Controller: the
+// left stick to move, the right stick to look, RB up, LB down, RT faster and LT slower (by how far
+// they are pressed), D-pad up / down for the base speed.
+FreeCameraControls ReadFreeCameraControls()
+{
+    FreeCameraControls c = {};
+    c.speed = 1.0f;
+    LONG dx, dy, wheel;
+    TakeMouseInput(dx, dy, wheel);
+    if (!GameWindowActive() || debug::MenuOpen())
+        return c;
+
+    XGamepad g = {};
+    ReadHostPad(0, g);
+    c.right = Stick(g.sThumbLX);
+    c.forward = Stick(g.sThumbLY);
+    c.lookX = Stick(g.sThumbRX);
+    c.lookY = Stick(g.sThumbRY);
+    c.up = (g.bAnalogButtons[XB_BLACK] - g.bAnalogButtons[XB_WHITE]) / 255.0f; // RB, LB
+    const float faster = g.bAnalogButtons[XB_RIGHT_TRIGGER] / 255.0f, slower = g.bAnalogButtons[XB_LEFT_TRIGGER] / 255.0f;
+    c.speed *= (1.0f + 3.0f * faster) * (1.0f - 0.8f * slower);
+    static WORD lastButtons = 0;
+    const WORD pressed = g.wButtons & ~lastButtons;
+    lastButtons = g.wButtons;
+    if (pressed & XB_DPAD_UP)
+        ++c.speedSteps;
+    if (pressed & XB_DPAD_DOWN)
+        --c.speedSteps;
+
+    auto down = [](int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; };
+    c.forward += (down('W') ? 1.0f : 0.0f) - (down('S') ? 1.0f : 0.0f);
+    c.right += (down('D') ? 1.0f : 0.0f) - (down('A') ? 1.0f : 0.0f);
+    c.up += (down('E') || down(VK_SPACE) ? 1.0f : 0.0f) - (down('Q') || down(VK_CONTROL) ? 1.0f : 0.0f);
+    if (down(VK_SHIFT))
+        c.speed *= 4.0f;
+    if (down(VK_MENU))
+        c.speed *= 0.2f;
+    c.forward = std::clamp(c.forward, -1.0f, 1.0f);
+    c.right = std::clamp(c.right, -1.0f, 1.0f);
+    c.up = std::clamp(c.up, -1.0f, 1.0f);
+    if (MouseButtonsAreGameInput()) {
+        c.mouseDx = dx;
+        c.mouseDy = dy;
+        c.speedSteps += wheel / WHEEL_DELTA;
+    }
+    return c;
+}
+
+// ---------------------------------------------------------------------------
 // XDK API
 // ---------------------------------------------------------------------------
 static void __stdcall XbInitDevices(DWORD preallocTypeCount, void* preallocTypes)
@@ -267,9 +338,11 @@ static DWORD __stdcall XbInputGetState(HANDLE device, XInputState* state)
         return ERROR_DEVICE_NOT_CONNECTED;
     DWORD index = DWORD(port - g_Ports);
     XGamepad g = {};
-    ReadHostPad(index, g);
-    if (index == 0)
-        ReadKeyboard(g);
+    if (index != 0 || !g_HoldPlayer) { // the free camera has player 1's input
+        ReadHostPad(index, g);
+        if (index == 0)
+            ReadKeyboard(g);
+    }
     if (std::memcmp(&g, &port->last, sizeof(g)) != 0) {
         port->last = g;
         ++port->packet;
