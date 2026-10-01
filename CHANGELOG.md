@@ -3,7 +3,7 @@
 What changed in each release of SWROTS-PC, newest first. Downloads are on the
 [releases page](https://github.com/jedijosh920/SWROTS-PC/releases).
 
-## [v0.2.1](https://github.com/jedijosh920/SWROTS-PC/releases/tag/v0.2.1) - not released yet
+## [v0.2.1](https://github.com/jedijosh920/SWROTS-PC/releases/tag/v0.2.1) - 2026-10-01
 
 A fix for crashes after a level change on some graphics drivers.
 
