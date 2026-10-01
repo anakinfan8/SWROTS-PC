@@ -3,6 +3,27 @@
 What changed in each release of SWROTS-PC, newest first. Downloads are on the
 [releases page](https://github.com/jedijosh920/SWROTS-PC/releases).
 
+## [v0.2.1](https://github.com/jedijosh920/SWROTS-PC/releases/tag/v0.2.1) - not released yet
+
+A fix for crashes after a level change on some graphics drivers.
+
+### Fixed
+
+- **Crash after a level change, a new versus match or a return to the menu** on some graphics
+  drivers, e.g. Windows in Parallels Desktop on a Mac ("A critical graphics error has occurred")
+  ([#2](https://github.com/jedijosh920/SWROTS-PC/issues/2),
+  [#3](https://github.com/jedijosh920/SWROTS-PC/issues/3)). The game restarts itself for every level,
+  creating its graphics device again; two caches of the port's (vertex layouts, used for movies and
+  screen-space drawing) were never released, so they kept the old device alive and were handed to
+  the new one. Most drivers tolerate that; stricter ones end the game. They are now released with
+  their device.
+
+### Added
+
+- The log warns when a released graphics device is still in use (`Graphics device still referenced`).
+- For contributors: `SWROTS_REBOOT_EVERY=<seconds>` restarts the game on a timer, to test restarts
+  ([contributing](https://github.com/jedijosh920/SWROTS-PC/blob/main/CONTRIBUTING.md)).
+
 ## [v0.2.0](https://github.com/jedijosh920/SWROTS-PC/releases/tag/v0.2.0) - 2026-09-30
 
 Yoda joins Versus.

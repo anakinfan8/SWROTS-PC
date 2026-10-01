@@ -55,6 +55,8 @@ IDirect3DVertexShader9* CurrentHostVertexShader();
 IDirect3DVertexShader9* ScreenSpaceVertexShader(DWORD fvf);
 // Vertex declaration matching `fvf` for use with ScreenSpaceVertexShader.
 IDirect3DVertexDeclaration9* ScreenSpaceDeclaration(DWORD fvf);
+// Releases those declarations (with the device).
+void ReleaseScreenSpaceDeclarations();
 
 // Default values for vertex registers missing from the stream (SetVertexData*).
 float* VertexRegisterDefaults(); // 16 x float4

@@ -117,6 +117,8 @@ static void ScaleScreenPositions(uint8_t* vertices, UINT count, UINT stride, UIN
 // --- Dynamic ring buffers -------------------------------------------------------------------
 
 static IDirect3DVertexBuffer9* g_RingVB = nullptr;
+// Vertex declarations of immediate-mode draws (EndFixedFunction), by layout.
+static std::unordered_map<uint64_t, IDirect3DVertexDeclaration9*> g_ImmediateDecls;
 static IDirect3DIndexBuffer9* g_RingIB = nullptr;
 static UINT g_RingVBPos = 0, g_RingIBPos = 0;
 static const UINT kRingVBSize = 32 << 20, kRingIBSize = 4 << 20;
@@ -126,6 +128,12 @@ static void ReleaseLayouts();
 void ReleaseDrawResources()
 {
     ReleaseLayouts();
+    // Device objects must go with their device: one kept would keep the old device alive and be
+    // handed to the next one, which strict drivers (e.g. Parallels') answer with a fatal error.
+    for (auto& [key, decl] : g_ImmediateDecls)
+        if (decl) decl->Release();
+    g_ImmediateDecls.clear();
+    ReleaseScreenSpaceDeclarations();
     if (g_RingVB) g_RingVB->Release();
     if (g_RingIB) g_RingIB->Release();
     g_RingVB = nullptr;
@@ -762,9 +770,8 @@ static void EndFixedFunction(UINT n)
     }
     decl.push_back(D3DDECL_END());
 
-    static std::unordered_map<uint64_t, IDirect3DVertexDeclaration9*> s_Decls;
     uint64_t key = Hash64(decl.data(), decl.size() * sizeof(D3DVERTEXELEMENT9));
-    IDirect3DVertexDeclaration9*& vd = s_Decls[key];
+    IDirect3DVertexDeclaration9*& vd = g_ImmediateDecls[key];
     if (!vd && FAILED(Device()->CreateVertexDeclaration(decl.data(), &vd)))
         return;
 

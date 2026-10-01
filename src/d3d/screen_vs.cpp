@@ -68,10 +68,11 @@ std::string BuildScreenSpaceShader(DWORD fvf, const int setForStage[4])
 
 // The FVF's implicit declaration marks the position as POSITIONT, which a
 // vertex shader cannot take as input; this one calls it POSITION.
+static std::unordered_map<DWORD, IDirect3DVertexDeclaration9*> g_ScreenDeclarations;
+
 IDirect3DVertexDeclaration9* ScreenSpaceDeclaration(DWORD fvf)
 {
-    static std::unordered_map<DWORD, IDirect3DVertexDeclaration9*> s_Declarations;
-    IDirect3DVertexDeclaration9*& decl = s_Declarations[fvf];
+    IDirect3DVertexDeclaration9*& decl = g_ScreenDeclarations[fvf];
     if (decl)
         return decl;
     std::vector<D3DVERTEXELEMENT9> e;
@@ -118,6 +119,13 @@ IDirect3DVertexShader9* ScreenSpaceVertexShader(DWORD fvf)
     vs = CompileVertexShader(BuildScreenSpaceShader(fvf, setForStage), key);
     LOG_DEBUG("Screen-space vertex shader for FVF %08lX -> %s", fvf, vs ? "ok" : "FAILED");
     return vs;
+}
+
+void ReleaseScreenSpaceDeclarations()
+{
+    for (auto& [fvf, decl] : g_ScreenDeclarations)
+        if (decl) decl->Release();
+    g_ScreenDeclarations.clear();
 }
 
 } // namespace swrots::d3d

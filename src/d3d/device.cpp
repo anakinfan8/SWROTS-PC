@@ -96,7 +96,9 @@ static void ReleaseDevice()
     g_WindowChain = nullptr;
     g_ChainWidth = g_ChainHeight = 0;
     g_HostBackTexture = nullptr;
-    g_Device->Release();
+    // Anything still holding the device keeps it, and its video memory, alive.
+    if (ULONG remaining = g_Device->Release())
+        LOG_WARN("Graphics device still referenced %lu time(s) after release: resources leaked", remaining);
     g_Device = nullptr;
 }
 

@@ -334,6 +334,29 @@ void RelaunchProcess(const void* launchData)
     ExitProcess(0);
 }
 
+void StartRebootTest(unsigned seconds)
+{
+    if (!seconds)
+        return;
+    LOG_INFO("Reboot test: restarting every %u seconds", seconds);
+    HANDLE thread = CreateThread(nullptr, 0, [](void* param) -> DWORD {
+        const DWORD ms = DWORD(uintptr_t(param)) * 1000;
+        for (;;) {
+            Sleep(ms);
+            LOG_INFO("Reboot test: restarting");
+            LogFlush();
+            HANDLE worker = CreateThread(nullptr, 0, [](void*) -> DWORD {
+                RebootInProcess(LaunchDataPage); // ends this thread; the reboot worker takes over
+                return 0;
+            }, nullptr, 0, nullptr);
+            if (worker)
+                CloseHandle(worker);
+        }
+    }, reinterpret_cast<void*>(uintptr_t(seconds)), 0, nullptr);
+    if (thread)
+        CloseHandle(thread);
+}
+
 void XBAPI HalReturnToFirmware(ULONG Routine)
 {
     const char* path = LaunchDataPage ? static_cast<const char*>(LaunchDataPage) + 8 : "";

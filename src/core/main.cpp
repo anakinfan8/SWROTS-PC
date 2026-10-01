@@ -232,6 +232,12 @@ static void Run(void* reserveBase, unsigned reserveSize, void* contiguousBase, u
     // restarts the game process instead, as earlier versions did.
     kernel::SetInProcessReboot(GetPrivateProfileIntW(L"Debug", L"ProcessReboot", 0, ini.c_str()) == 0);
     kernel::SetRebootHandlers({ &ResetRuntime, &RebootGame, &kernel::RelaunchProcess });
+    wchar_t rebootEvery[16] = {};
+    if (GetEnvironmentVariableW(L"SWROTS_REBOOT_EVERY", rebootEvery, 16)) {
+        // Not passed on: a restart that falls back to a new process must not start the test again.
+        SetEnvironmentVariableW(L"SWROTS_REBOOT_EVERY", nullptr);
+        kernel::StartRebootTest(unsigned(_wtoi(rebootEvery)));
+    }
     xapi::EnableSdkTrace(GetPrivateProfileIntW(L"Debug", L"TraceSdk", 0, ini.c_str()) != 0);
     g_Boot.paths = paths;
     if (GetPrivateProfileIntW(L"Mods", L"DumpResources", 0, ini.c_str()))

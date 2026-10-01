@@ -28,6 +28,9 @@ void BootInit(const void* launchData);
 // (reboot.cpp); otherwise, or as the fallback, the game process exits for the frame to
 // start it again with the launch data (core/window.h).
 void SetInProcessReboot(bool enabled);
+// Development aid: restarts the game in this process every `seconds` (SWROTS_REBOOT_EVERY), as a level
+// change does, to test what a restart leaves behind.
+void StartRebootTest(unsigned seconds);
 [[noreturn]] void RelaunchProcess(const void* launchData);
 void InstallThunks(uint32_t thunkTableAddress);
 void InstallFsPatches();

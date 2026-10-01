@@ -61,7 +61,10 @@ Environment variables: `SWROTS_NO_DIALOGS=1` (no message boxes, for unattended r
 `SWROTS_DRAWLOG_FRAME=<n>` or F11 (logs every draw of one frame), `SWROTS_SHADER_DUMP=<dir>`
 (writes the generated HLSL shaders), `SWROTS_ALL_CORES=1` (lets game threads use every CPU core;
 for tests only, the game expects one), `SWROTS_NO_AUDIO=1` (runs as without an audio device: the
-game plays silently, movies and sounds keeping time on the clock).
+game plays silently, movies and sounds keeping time on the clock), `SWROTS_REBOOT_EVERY=<seconds>`
+(restarts the game in-process that often, as a level change does, to test what a restart leaves
+behind; best with a level booted from `Default_Xbox.cfg`, since a restart mid-movie falls back to a new
+process).
 
 ## Finding your way around
 
