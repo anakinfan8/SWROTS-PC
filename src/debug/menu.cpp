@@ -239,77 +239,21 @@ std::string PlayerCommand(const CharacterPicks& picks)
     return line;
 }
 
-// The Characters tab's Spawn area: its own picks (class, costume, texture set), how many, then Spawn.
-struct SpawnPicks {
-    std::string className;
-    std::string costume; // empty: the usual one
-    std::string skin;    // empty: the usual one
-    int count = 1;
-};
-SpawnPicks g_SpawnPicks;
-
-void SpawnArea()
+// The Characters tab's Spawn area: the Play-as picks (class, costume, texture set; not the body, whose
+// animation binding would be shared), how many and on which side, then Spawn.
+void SpawnArea(const CharacterPicks& picks)
 {
-    SpawnPicks& picks = g_SpawnPicks;
-    const float width = ImGui::GetContentRegionAvail().x / 4.0f;
-
-    ImGui::SetNextItemWidth(width);
-    if (ImGui::BeginCombo("Class##spawn", picks.className.empty() ? "(pick one)" : picks.className.c_str(),
-            ImGuiComboFlags_HeightLarge)) {
-        for (size_t c = 0; c < g_Classes.size(); ++c) {
-            if (!g_ClassBodies[c])
-                continue; // cut from the game
-            if (ImGui::Selectable(g_Classes[c].c_str(), g_Classes[c] == picks.className) && picks.className != g_Classes[c]) {
-                picks.className = g_Classes[c];
-                picks.costume.clear();
-                picks.skin.clear();
-            }
-        }
-        ImGui::EndCombo();
-    }
-    ImGui::SameLine();
-    static std::string variantsOf;
-    static std::vector<game::Variant> variants;
-    if (variantsOf != picks.className) {
-        variantsOf = picks.className;
-        variants = game::ClassVariants(picks.className.c_str());
-    }
-    ImGui::SetNextItemWidth(width);
-    if (ImGui::BeginCombo("Costume##spawn", picks.costume.empty() ? "(the usual one)" : picks.costume.c_str(),
-            ImGuiComboFlags_HeightLarge)) {
-        if (ImGui::Selectable("(the usual one)", picks.costume.empty()))
-            picks.costume.clear();
-        for (const game::Variant& v : variants) {
-            if (!v.onDisc)
-                continue;
-            if (ImGui::Selectable(v.name, picks.costume == v.name))
-                picks.costume = v.name;
-        }
-        ImGui::EndCombo();
-    }
-    const std::vector<std::string> sets = game::ClassTextureSets(picks.className.c_str());
-    if (!sets.empty()) {
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(width * 0.7f);
-        if (ImGui::BeginCombo("Skin##spawn", picks.skin.empty() ? "(usual)" : picks.skin.c_str())) {
-            if (ImGui::Selectable("(usual)", picks.skin.empty()))
-                picks.skin.clear();
-            for (const std::string& set : sets)
-                if (ImGui::Selectable(set.c_str(), picks.skin == set))
-                    picks.skin = set;
-            ImGui::EndCombo();
-        }
-    }
-
-    ImGui::SetNextItemWidth(width * 0.6f);
-    ImGui::SliderInt("How many##spawn", &picks.count, 1, 5);
-    ImGui::SameLine();
+    static int count = 1;
     static int side = 0;
+    const float width = ImGui::GetContentRegionAvail().x / 4.0f;
+    ImGui::SetNextItemWidth(width * 0.6f);
+    ImGui::SliderInt("How many##spawn", &count, 1, 5);
+    ImGui::SameLine();
     ImGui::SetNextItemWidth(width * 0.8f);
-    ImGui::Combo("Side##spawn", &side, "its class's own\0ally\0enemy\0");
+    ImGui::Combo("Side##spawn", &side, "Default\0Ally\0Enemy\0");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Its class's own: as the game has it (clones and droids against Jedi, a hero as AI\n"
-                          "against you). Ally fights for you, enemy against you.");
+        ImGui::SetTooltip("Default: as the game has it (clones and droids against Jedi, a hero as AI against\n"
+                          "you). Ally fights for you, Enemy against you.");
     ImGui::SameLine();
     std::string spawn = "spawn " + picks.className;
     if (!picks.costume.empty())
@@ -324,13 +268,13 @@ void SpawnArea()
     if (!canSpawn)
         ImGui::BeginDisabled();
     if (ImGui::Button("Spawn"))
-        for (int i = 0; i < picks.count; ++i)
+        for (int i = 0; i < count; ++i)
             Submit(spawn);
     if (!canSpawn)
         ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Characters in front of you (spawn), loaded from another level if need be. They\n"
-                          "stay until the mission restarts. Needs a class and a running mission.");
+        ImGui::SetTooltip("Characters of the picked class, costume and skin (not body) in front of you,\n"
+                          "until the mission restarts. Needs a class picked above and a running mission.");
     ImGui::SameLine();
     ImGui::TextDisabled("%d spawned in this level", game::SpawnedCount());
 }
@@ -369,8 +313,8 @@ void CharactersTab()
         currentMesh.empty() ? "" : ", mesh ", currentMesh.c_str());
 
     UpdateLog();
-    // Below the lists: the buttons, the command, the last printed lines, then the Spawn area.
-    const float buttonsHeight = ImGui::GetFrameHeightWithSpacing() * 5.6f + ImGui::GetTextLineHeightWithSpacing() * 5;
+    // Below the lists: the buttons, the command, then the Spawn area.
+    const float buttonsHeight = ImGui::GetFrameHeightWithSpacing() * 4.6f + ImGui::GetTextLineHeightWithSpacing() * 2;
     if (ImGui::BeginTable("characters", 3, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable,
             ImVec2(0, -buttonsHeight))) {
         ImGui::TableSetupColumn("Class");
@@ -388,7 +332,7 @@ void CharactersTab()
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Every class the game registers, not only those with costumes.\nMost are not characters.");
         if (ImGui::BeginChild("classes", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
-            if (ImGui::Selectable("(each level's own)", picks.className.empty())) {
+            if (ImGui::Selectable("Default##class", picks.className.empty())) {
                 picks.className.clear();
                 picks.costume.clear();
                 picks.skin.clear();
@@ -420,7 +364,7 @@ void CharactersTab()
         ImGui::TableNextColumn();
         if (ImGui::BeginChild("costumes", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
             if (picks.className.empty()) {
-                ImGui::TextDisabled("Each level's own character\nwears its own costume.");
+                ImGui::TextDisabled("Pick a class to choose\nits costume.");
             } else {
                 static std::string variantsOf;
                 static std::vector<game::Variant> variants; // looked up once per class (each asks the disc)
@@ -428,7 +372,7 @@ void CharactersTab()
                     variantsOf = picks.className;
                     variants = game::ClassVariants(picks.className.c_str());
                 }
-                if (ImGui::Selectable("(the usual one)", picks.costume.empty()))
+                if (ImGui::Selectable("Default##costume", picks.costume.empty()))
                     picks.costume.clear();
                 for (size_t i = 0; i < variants.size(); ++i) {
                     char label[96];
@@ -449,10 +393,8 @@ void CharactersTab()
                 const std::vector<std::string> sets = game::ClassTextureSets(picks.className.c_str());
                 if (!sets.empty()) {
                     ImGui::SeparatorText("Texture set");
-                    if (ImGui::Selectable("(the usual one)##skin", picks.skin.empty()))
+                    if (ImGui::Selectable("Default##skin", picks.skin.empty()))
                         picks.skin.clear();
-                    if (ImGui::Selectable(" 0  (plain)", picks.skin == "0"))
-                        picks.skin = "0";
                     for (size_t i = 0; i < sets.size(); ++i) {
                         char label[64];
                         snprintf(label, sizeof(label), "%2zu  %s", i + 1, sets[i].c_str());
@@ -469,7 +411,7 @@ void CharactersTab()
         ImGui::SetNextItemWidth(-FLT_MIN);
         ImGui::InputTextWithHint("##meshfilter", "filter", picks.meshFilter, sizeof(picks.meshFilter));
         if (ImGui::BeginChild("meshes", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
-            if (ImGui::Selectable("(the costume's own)", picks.mesh.empty()))
+            if (ImGui::Selectable("Default##mesh", picks.mesh.empty()))
                 picks.mesh.clear();
             for (const std::string& mesh : g_Meshes)
                 if (Contains(mesh, picks.meshFilter) && ImGui::Selectable(mesh.c_str(), picks.mesh == mesh))
@@ -505,14 +447,8 @@ void CharactersTab()
         ImGui::SetTooltip("Applying restarts the running mission with the new character.\n"
                           "Off: it applies from the next level start. [Debug] AutoRestart in settings.ini.");
     ImGui::TextDisabled("%s", command.c_str());
-    // The last lines the commands printed (the console tab has them all).
-    for (size_t i = g_Log.size() > 3 ? g_Log.size() - 3 : 0; i < g_Log.size(); ++i) {
-        ImGui::PushStyleColor(ImGuiCol_Text, LineColor(g_Log[i].kind));
-        ImGui::TextUnformatted(g_Log[i].text.c_str());
-        ImGui::PopStyleColor();
-    }
     ImGui::SeparatorText("Spawn");
-    SpawnArea();
+    SpawnArea(picks);
 }
 
 // --- Game tab ---------------------------------------------------------------------------------

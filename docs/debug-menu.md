@@ -247,14 +247,14 @@ Two areas: **Play as** (who you are) and **Spawn** (characters you add to the mi
 **Play as** is the `player` command with lists, for picking a character without typing names.
 
 - **Class**: the classes that have costumes, with a filter box; greyed out *(cut)* ones cannot be
-  played (see above). *(each level's own)* keeps each level's own character. *All classes* lists
-  every class the game registers; most of those are not characters (props, weapons, effects).
+  played (see above). *Default* keeps each level's own character. *All classes* lists every class the
+  game registers; most of those are not characters (props, weapons, effects).
 - **Costume**: the picked class's costumes, numbered as in `variants`; greyed out ones were cut and
-  are not on the disc, and hovering one shows its mesh. *(the usual one)* is the costume the level
-  picks. Below them, the class's **texture sets**, if it has any: *(the usual one)*, *0 (plain)*,
-  then the sets (`_var01` is the clone trooper's 501st).
-- **Mesh**: every character body on the disc and under `mods\`, with a filter box. *(the costume's
-  own)* keeps the costume's body.
+  are not on the disc, and hovering one shows its mesh. *Default* is the costume the level picks.
+  Below them, the class's **texture sets**, if it has any: *Default* (the plain textures), then the
+  sets (`_var01` is the clone trooper's 501st).
+- **Mesh**: every character body on the disc and under `mods\`, with a filter box. *Default* keeps
+  the costume's body.
 
 The buttons:
 
@@ -264,12 +264,12 @@ The buttons:
 - **Restart mission** restarts the running mission (greyed out outside a mission).
 - **Restart on apply** is `autorestart`: off, Apply only sets the character for the next level start.
 
-The last three lines the commands printed show under the buttons: the choice, or why it was refused.
+What a command printed (the choice, or why it was refused) is in the Console tab.
 
-**Spawn** has its own picks: a **class** (cut classes are left out), a **costume** and, for classes
-that have them, a **skin** (texture set), then **how many** (1 to 5) and **Spawn** (`spawn`, once
-per character). The count of characters spawned in this level is shown beside it. **Side**: its
-class's own, ally or enemy (as `spawn ... ally|enemy`).
+**Spawn** uses the Play-as picks above (class, costume and skin; not the mesh: a spawn cannot wear
+another body), with **How many** (1 to 5), **Side** (*Default*: its class's own; *Ally*, *Enemy*: as
+`spawn ... ally|enemy`) and **Spawn** (`spawn`, once per character). The count of characters spawned
+in this level is shown beside it.
 
 ## Game tab
 

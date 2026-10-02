@@ -1190,6 +1190,12 @@ void* __fastcall SceneLoadHook(uint8_t* scene, void* edx, const EnginePath* path
     const PakIndex::Entry* entry = nullptr;
     if (!result && DeclareFromDisc(scene, path, typeId, &owner, &entry)) {
         result = g_OriginalSceneLoad(scene, edx, path, typeId, flags);
+        // A second load: a reference of the port's own, kept for the level, as the level keeps its own
+        // resources. Without it, the resource is freed when the last character using it goes (a spawned
+        // character dying), and the next one reloads the mesh under a model still bound to the old data
+        // (0x6754A: the animation reads empty slots).
+        if (result)
+            g_OriginalSceneLoad(scene, edx, path, typeId, flags);
         std::vector<uint8_t> data;
         if (result && typeId == kCharacterDefinitionType && owner->ReadData(*entry, data)) {
             LoadReferences(scene, data);

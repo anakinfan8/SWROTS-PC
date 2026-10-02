@@ -102,6 +102,10 @@ initialize, the log names what is missing, e.g.
   e.g. the 501st clone markings) names textures only some levels have; the port declares them from
   the levels that do.
 
+- **What is pulled in stays for the level.** A level keeps its own resources loaded; one the port
+  brings in from another level is held the same way (the port keeps a reference of its own), so a
+  spawned character's model is not freed when the last one wearing it dies (the next one would crash).
+
 Only content that is on the disc can be pulled in this way. Entirely new content (a character
 from another game) still has to be provided as loose files under `mods\`, and memory-image
 resources (animations) cannot be replaced by loose files yet.

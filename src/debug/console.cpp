@@ -703,7 +703,8 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         command != "duelist" && command != "player" && command != "variants" && command != "meshes" &&
         command != "restart" && command != "autorestart" && command != "unlockprofile" &&
         command != "freecam" && command != "saber" && command != "spawn" && command != "peek" &&
-        command != "infiniteforce" && command != "memory" && command != "team")
+        command != "infiniteforce" && command != "memory" && command != "team" &&
+        command != "killspawned")
         return false;
     Print(LineKind::Output, "> %s", line.c_str());
     if (command == "duelist") {
@@ -732,6 +733,14 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         Memory();
     } else if (command == "team") {
         Team(words);
+    } else if (command == "killspawned") {
+        // Research: the last spawned character's health to 0.
+        if (uint8_t* spawned = game::LastSpawnedObject()) {
+            *reinterpret_cast<float*>(spawned + 0x130) = 0.0f;
+            Print(LineKind::Output, "  the last spawned character's health is 0");
+        } else {
+            Print(LineKind::Error, "nothing spawned");
+        }
     } else if (command == "unlockprofile") {
         // The game's own developer command (TVaderGameOptions), not registered in the retail build.
         reinterpret_cast<void(__cdecl*)()>(uintptr_t(game::kUnlockProfile))();
@@ -821,7 +830,7 @@ void RunQueuedConsoleCommands()
             // and gone while a level loads).
             const std::vector<std::string> words = Words(line);
             static const char* const kStandalone[] = { "player", "variants", "meshes", "restart", "autorestart",
-                "duelist", "freecam", "saber", "spawn", "peek", "infiniteforce", "memory", "team", "clear", "cls" };
+                "duelist", "freecam", "saber", "spawn", "peek", "infiniteforce", "memory", "team", "killspawned", "clear", "cls" };
             const bool standalone = !words.empty() && std::any_of(std::begin(kStandalone), std::end(kStandalone),
                 [&](const char* c) { return _stricmp(words[0].c_str(), c) == 0; });
             if (standalone) {
