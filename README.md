@@ -33,6 +33,8 @@ Things the Xbox release never had:
   disc kept for him; always unlocked, and Random can pick him. No settings or debug options needed.
 - **Sith Yoda.** In Yoda against Yoda, player 2 is a dark Yoda with a red saber, as the game's own
   fighters get a different look against themselves.
+- **Play story levels as another character.** `player IVader`, then start Order 66 as Vader; or
+  Yoda, a clone trooper, a battle droid (debug console; some missions expect their own character).
 - **Unlock everything** with the developers' own cheat, `unlockprofile` (debug console).
 - **The game's hidden debug console and displays**, and **loose-file mods** without rebuilding
   archives.
@@ -112,7 +114,9 @@ the run before. Say what you were doing, which level, and whether it happens eve
 - Proper 60 fps and higher (the engine has fixed-step simulation to build on).
 - An in-game settings menu, keyboard as its own player for versus modes, more controllers.
 - More versus fighters from the disc (the framework for Yoda's slot takes more), Yoda's own duel
-  intro, and a darker player-2 bust and HUD portrait for Sith Yoda.
+  intro, and a darker player-2 bust and HUD portrait for Sith Yoda. The `player` command plays story levels as
+  another character (e.g. Vader in Order 66); blaster fire for gunner characters and spawning any
+  character are next.
 - Modding tools: a character swap tool, dumping and replacing animations.
 - A full playthrough on many machines, and a stable 1.0.
 

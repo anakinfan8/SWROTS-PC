@@ -21,6 +21,7 @@
 #include "debug/console.h"
 #include "debug/menu.h"
 #include "game/aliases.h"
+#include "game/characters.h"
 #include "game/devoptions.h"
 #include "game/fixes.h"
 #include "game/game.h"
@@ -133,6 +134,7 @@ static void StartGame(const void* launchData)
     game::InstallVersus();
     game::InstallRoster();
     game::InstallAnimationAliases();
+    game::InstallCharacters();
     game::InstallResourceHooks(g_Boot.paths.gameData, g_Boot.paths.mods, g_Boot.paths.cache, g_Boot.dumpDir,
         g_Boot.logResources);
     audio::InitXboxGlobals();

@@ -471,23 +471,16 @@ bool Mirror(const ExtraFighter& extra)
     return launch != nullptr;
 }
 
-// The select screen's class table: the game's nine, Random's (unused), the extras.
-void FillSelectClasses()
-{
-    std::memcpy(g_Classes, reinterpret_cast<const void*>(uintptr_t(kDuelistClasses)), kFighterCount * sizeof(g_Classes[0]));
-    g_Classes[kRandomSlot] = g_Classes[0]; // never read: Random becomes a fighter before the duel
-    for (int i = 0; i < kExtraCount; ++i)
-        g_Classes[kFirstExtraSlot + i] = kExtraFighters[i].className;
-    g_Classes[kSlotCount] = nullptr;
-}
-
 void BuildDuelClasses()
 {
     std::memcpy(g_DuelClasses, reinterpret_cast<const void*>(uintptr_t(kDuelistClasses)), kFighterCount * sizeof(g_DuelClasses[0]));
     int count = kFighterCount;
     auto* launch = *reinterpret_cast<uint8_t**>(uintptr_t(kLaunchSettings));
     for (const ExtraFighter& extra : kExtraFighters) {
-        for (int player = 0; launch && player < 2; ++player) {
+        bool inTable = false; // put in a slot of the nine with the duelist command
+        for (int slot = 0; slot < kFighterCount; ++slot)
+            inTable = inTable || (g_DuelClasses[slot] && _stricmp(g_DuelClasses[slot], extra.className) == 0);
+        for (int player = 0; launch && !inTable && player < 2; ++player) {
             const char* chosen = *reinterpret_cast<const char**>(launch + 4 + player * 4);
             if (chosen && _stricmp(chosen, extra.className) == 0) {
                 LOG_INFO("Roster: %s fights in duel slot %d", extra.className, count);
@@ -587,6 +580,15 @@ void PatchDisplacement(const TableSite& site, const void* table)
 
 } // namespace
 
+void SyncRosterClasses()
+{
+    std::memcpy(g_Classes, reinterpret_cast<const void*>(uintptr_t(kDuelistClasses)), kFighterCount * sizeof(g_Classes[0]));
+    g_Classes[kRandomSlot] = g_Classes[0]; // never read: Random becomes a fighter before the duel
+    for (int i = 0; i < kExtraCount; ++i)
+        g_Classes[kFirstExtraSlot + i] = kExtraFighters[i].className;
+    g_Classes[kSlotCount] = nullptr;
+}
+
 const char* ExtraFighterCameras(int duelSlot)
 {
     if (duelSlot < kFighterCount || duelSlot >= kDuelSlotCount || !g_DuelClasses[duelSlot])
@@ -650,7 +652,7 @@ void InstallRoster()
     RegisterResourcePatch("interfc\\front_end\\xml\\select_jedi.xml", &PatchSelectScreen);
     RegisterResourcePatch("interfc\\front_end\\xml\\select_arena.xml", &PatchArenaScreen);
     RegisterResourceGenerator(&DarkLookGenerator);
-    FillSelectClasses();
+    SyncRosterClasses();
     PatchDisplacement(kSelectClassSite, g_Classes);
 
     // The duel.

@@ -7,8 +7,8 @@ more fighters can be added the same way ([adding versus fighters](../modding/add
 
 This page records what the game does and what the port changes, for anyone continuing the work.
 Addresses are the retail Xbox executable's (NTSC-U), as loaded. The code is `src/game/roster.cpp`
-(the select screens and the duel), `src/game/versus.cpp` (variants and duel cameras),
-`src/game/aliases.cpp` (Yoda's blocks), `src/game/characters.cpp` (variants) and
+(the select screens and the duel), `src/game/versus.cpp` (duel cameras, the `duelist` command),
+`src/game/aliases.cpp` (Yoda's blocks), `src/game/characters.cpp` (HUD portraits) and
 `src/game/resources.cpp` (loading from other levels, generated textures).
 
 ## The pieces

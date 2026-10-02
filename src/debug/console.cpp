@@ -13,6 +13,8 @@
 #include "core/log.h"
 #include "core/patch.h"
 #include "game/game.h"
+#include "game/characters.h"
+#include "game/versus.h"
 
 namespace swrots::debug {
 
@@ -228,6 +230,8 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  get <variable>");
     Print(LineKind::Output, "  toggle <variable>        (on/off variables)");
     Print(LineKind::Output, "  listvars [text]          all variables, or those whose name contains text");
+    Print(LineKind::Output, "  duelist [<slot> <class>] versus select slots, or put a class in one");
+    Print(LineKind::Output, "  player [<class>|off]     play levels (from the next start) as a character class");
     Print(LineKind::Output, "  unlockprofile            unlock everything in the signed-in profile (it is saved with it)");
     Print(LineKind::Output, "  clear                    empties this window");
     Print(LineKind::Output, "  help");
@@ -287,6 +291,43 @@ void Toggle(uint8_t* registry, const std::string& name)
     Set(registry, name, VariableValue(var) == "true" ? "false" : "true");
 }
 
+void Duelist(const std::vector<std::string>& words)
+{
+    if (words.size() == 3) {
+        int slot = atoi(words[1].c_str());
+        if (slot < 0 || slot >= game::kDuelistCount) {
+            Print(LineKind::Error, "slot must be 0-%d", game::kDuelistCount - 1);
+            return;
+        }
+        if (!game::SetDuelist(slot, words[2].c_str())) {
+            Print(LineKind::Error, "%s: not a class the game knows", words[2].c_str());
+            return;
+        }
+    } else if (words.size() != 1) {
+        Print(LineKind::Error, "duelist [<slot> <class>]");
+        return;
+    }
+    for (int i = 0; i < game::kDuelistCount; ++i)
+        Print(LineKind::Output, "  %d  %s", i, game::Duelist(i));
+}
+
+void Player(const std::vector<std::string>& words)
+{
+    if (words.size() == 2) {
+        bool off = _stricmp(words[1].c_str(), "off") == 0;
+        if (!game::SetPlayerClass(off ? nullptr : words[1].c_str())) {
+            Print(LineKind::Error, "%s: not a class the game knows", words[1].c_str());
+            return;
+        }
+    } else if (words.size() != 1) {
+        Print(LineKind::Error, "player [<class>|off]");
+        return;
+    }
+    const char* current = game::PlayerClass();
+    Print(LineKind::Output, current ? "  player: %s (from the next level start; restart the level to see it)"
+                                    : "  player: each level's own%s", current ? current : "");
+}
+
 // Returns false when the line is for the game's own console.
 bool RunPortCommand(uint8_t* console, const std::string& line)
 {
@@ -312,10 +353,14 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         return true;
     }
     if (command != "help" && command != "listvars" && command != "get" && command != "set" && command != "toggle" &&
-        command != "unlockprofile")
+        command != "duelist" && command != "player" && command != "unlockprofile")
         return false;
     Print(LineKind::Output, "> %s", line.c_str());
-    if (command == "unlockprofile") {
+    if (command == "duelist") {
+        Duelist(words);
+    } else if (command == "player") {
+        Player(words);
+    } else if (command == "unlockprofile") {
         // The game's own developer command (TVaderGameOptions), not registered in the retail build.
         reinterpret_cast<void(__cdecl*)()>(uintptr_t(game::kUnlockProfile))();
         Print(LineKind::Output, "  unlocked: story, fighters, arenas, bonus missions, concept art (saved with the profile)");

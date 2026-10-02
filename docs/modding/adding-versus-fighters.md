@@ -4,10 +4,15 @@ Yoda was added to the versus select screen as a fighter of his own; any characte
 can be added the same way. This is a code change (one table row, then a build), not a loose-file mod
 yet. How it works underneath: [the versus roster](../research/versus-roster.md).
 
+For a quick try without building anything, the [debug console](../debug-menu.md)'s
+`duelist <slot> <class>` puts a class in one of the nine existing slots instead, e.g.
+`duelist 0 IDooku`.
+
 ## What a fighter needs
 
-- **A character class the game knows**, e.g. `IYoda`, `IPalpatine`, `IJediKnight` (the names are in
-  the game's executable; an unknown name creates no fighter and the duel fails).
+- **A character class the game knows**, e.g. `IYoda`, `IPalpatine`, `IJediKnight`. `duelist` lists
+  the fighters and refuses unknown names; `player <class>` is a quick way to check that a class loads
+  and plays in a level at all.
 - **A combat moveset.** The class must be able to fight a saber duelist: attacks (its
   `a_<name>.csv`), reactions, and the animations for them. Characters built for other roles (clone
   troopers, droids) load but fight poorly. Reactions the class lacks fall back to the human base

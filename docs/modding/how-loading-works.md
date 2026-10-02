@@ -57,7 +57,8 @@ The port hooks the engine's resource reader (`SceneResPacker::Read`, see `src/ga
   would have loaded for that character from its PAK: its main definition (`s_<name>.xml`) and its
   tables (`r_<name>.csv`, `a_<name>.csv`). Tables the engine opens by name later, such as a
   parent class's (a padawan uses `b_JediKnight.csv`), are declared when it opens them. This is how
-  Yoda fights in a versus arena.
+  Yoda fights in a versus arena, and how you can play a level as another character (see the
+  [debug menu](../debug-menu.md)'s `duelist` and `player` commands).
 - **Missing animations are found by name.** Before a character is set up, the engine checks that
   every animation it requires exists, and fails the character otherwise. That includes its own
   animations, ones it shares with other characters, and the grapple animations of the characters

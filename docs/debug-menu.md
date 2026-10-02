@@ -26,6 +26,8 @@ Up/Down recall earlier commands.
 | `set <variable> <value>` | changes a variable, e.g. `set timeScale 0.5`, `set god true` |
 | `<variable>=<value>` | the same, in the `vars_xbox.cfg` form |
 | `toggle <variable>` | flips an on/off variable |
+| `duelist [<slot> <class>]` | lists the versus select screen's fighters, or puts a character class in a slot (see below) |
+| `player [<class>\|off]` | plays levels as another character class, from the next level start (see below) |
 | `unlockprofile` | the game's developer cheat: unlocks everything in the signed-in profile (story, fighters, arenas, bonus missions, concept art); the game saves it with the profile, so back up `saves\` first to keep your progress |
 | `clear` | empties the console (also the Clear button) |
 | anything else | runs through the game's console: the game's own commands |
@@ -40,16 +42,36 @@ Yoda has his own cell on the versus select screen, after Random, with his name, 
 fights like any fighter (he is always unlocked, and Random can pick him), with Anakin's intro and
 win cameras (the disc has none of his own). He was made for fighting clones and droids, so he has
 no reactions of his own for most of what a duelist does to him and uses Anakin's; the port gives him
-his own block reaction for a duelist's blows (Anakin's blocks left him floating).
+his own block reaction for a duelist's blows (Anakin's blocks left him floating), wherever he plays.
 Some reactions can still look off. In Yoda against Yoda, player 2 is a dark "Sith" Yoda
 with a red saber, as the game's own fighters have a different look against themselves; the port
 makes his darker textures from the normal ones. Yoda is otherwise untouched. He has no full-body
 picture on the disc, so the arena screen shows his bust (both players' are the normal bust). The
 port loads him from the Jedi Temple level's PAK only for duels he is in.
 
-Besides Yoda, the select screen has the game's nine fighters, slots 0-8: `IAnakin`, `IObiwan`,
-`IDooku`, `IGrievous`, `IMace`, `ISerra`, `ICinDrallig`, `IVader`, `IOldObiwan`. How Yoda was added,
-and how to add more fighters: [adding versus fighters](modding/adding-versus-fighters.md).
+Besides Yoda, the select screen has the game's nine fighters, slots 0-8: `IAnakin`, `IObiwan`, `IDooku`, `IGrievous`,
+`IMace`, `ISerra`, `ICinDrallig`, `IVader`, `IOldObiwan`. `duelist <slot> <class>` puts another
+character class in a slot until the game is closed. For example, `duelist 0 IYoda`, then choose
+Anakin in Versus: Yoda fights instead. The arenas do not contain Yoda; the port loads him from the
+Jedi Temple level's PAK (see [how loading works](modding/how-loading-works.md#what-the-port-changes)).
+The select screen still shows the slot's original portrait, and a character without duel cameras
+of its own (the intro and win shots) uses those of the character whose slot it took. `duelist` refuses class names the game
+does not know. A character in another's slot uses the first of its variants whose model is on the
+disc (e.g. the battle droid's `hordeBattleDroid`), for both players; characters without a combat
+moveset may not work as fighters.
+
+### Playing as another character
+
+`player <class>` makes you that character class in every level from the next level start (restart
+the level, or load another) until the game is closed; `player off` goes back to each level's own
+character, and `player` alone shows the current choice. For example, `player IVader` then restart
+Order 66, or `player IYoda`, `player ICloneTrooper`, `player IBattleDroid` in Mustafar. Characters
+the level does not contain are loaded from other levels' PAKs, like versus fighters. A character
+whose usual costume is not on the disc gets the first of its variants that is (the battle droid's
+`hordeBattleDroid`). The HUD shows the character's portrait when the game has one (its twelve:
+Anakin, Obi-Wan, Dooku, Grievous, Mace, Serra, Cin Drallig, Vader, old Obi-Wan, Yoda, Cody and the
+bodyguard), loaded from another level if need be; other classes, such as the clone trooper, have none.
+Missions may expect their own character (cutscenes, scripted moments).
 
 Some of the game's commands:
 

@@ -129,6 +129,10 @@ inline constexpr uint32_t kHashBuckets = 0x0C;        // from the owner: +4 tabl
 // Variable objects: vtable {Get(TString* out), Set(const TString* in), TypeName()}, +0x10 -> the value.
 inline constexpr uint32_t kTStringCtor = 0x00225100;  // thiscall (): empty string
 inline constexpr uint32_t kTStringDtor = 0x00225230;  // thiscall ()
+inline constexpr uint32_t kTStringAssign = 0x00225A10; // thiscall (const char*)
+// Creates the level's player (Manager_Base.cpp; cdecl (TString* class, int variant), -1 = the level's
+// default) through the character factory ([0x692DF4] vtable +0x74, by class name), named Player1.
+inline constexpr uint32_t kSpawnPlayer = 0x000B1F90;
 // Unlocks everything in the signed-in profile (TVaderGameOptions' developer command "unlockprofile",
 // not registered in the retail build; cdecl ()): story progress, the fighters' unlock bytes
 // (+0x2A8..), arenas, bonus missions, concept art. The profile is saved with it by the game.
@@ -139,8 +143,14 @@ inline constexpr uint32_t kUnlockProfile = 0x002E59F0;
 inline constexpr uint32_t kDuelistClasses = 0x00650C08;
 inline constexpr int kDuelistCount = 9;
 // Character variant per duelist slot and player (int [slot * 2 + player]): Anakin and Obi-Wan use their
-// duel variants (Anakin_Duel, ...), the others 0.
+// duel variants (Anakin_Duel, ...), the others 0. A slot given another class needs its default (0).
 inline constexpr uint32_t kDuelistVariants = 0x005CC1C0;
+// Class registry (InstanceManager.cpp), created on first use: [kClassRegistry] -> {.., +8 buckets[237]},
+// nodes {classInfo, const char* name, next}. Lookups compare names as text (with +0x3BE set they
+// would compare addresses; the retail game leaves it clear).
+inline constexpr uint32_t kClassRegistry = 0x0068EBE8;
+inline constexpr uint32_t kClassRegistryBuckets = 0x08;
+inline constexpr int kClassRegistryBucketCount = 237;
 inline constexpr uint32_t kUnhandledExceptionFilter = 0x004A319F;
 inline constexpr uint32_t kXMountUtilityDrive = 0x004A0A7B;
 inline constexpr uint32_t kXFormatUtilityDrive = 0x004A0B80;

@@ -64,7 +64,9 @@ for tests only, the game expects one), `SWROTS_NO_AUDIO=1` (runs as without an a
 game plays silently, movies and sounds keeping time on the clock), `SWROTS_REBOOT_EVERY=<seconds>`
 (restarts the game in-process that often, as a level change does, to test what a restart leaves
 behind; best with a level booted from `Default_Xbox.cfg`, since a restart mid-movie falls back to a new
-process).
+process), `SWROTS_DUELISTS=<slot>=<class>[,...]` (the console's `duelist` changes from the start, e.g.
+`0=IYoda`, for unattended versus tests), `SWROTS_PLAYER=<class>` (the console's `player` from the
+start, e.g. `IVader`).
 
 ## Finding your way around
 

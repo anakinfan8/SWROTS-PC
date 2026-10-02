@@ -566,8 +566,8 @@ int __fastcall ReadHook(void* packer, void* edx, DecodeFn decode, EnginePath* pa
     uint32_t mode = *reinterpret_cast<uint32_t*>(p + 0x1D0); // 0 files, 1 recording a PAK, 2 PAK stream
     bool packMode = mode == 2 && p[0x88] == 0 && reader && onDiscDrive;
     // The engine reads a resource as a file on the disc in mode 0 (e.g. once a level's stream is
-    // done: an effect whose copy the stream skipped, asked for later by a character the level was not
-    // made for), and in mode 2 when the packer's "direct" flag (+8, set through the scene,
+    // done: an effect of a player class swapped out, whose copy the stream skipped, asked for later
+    // by another character), and in mode 2 when the packer's "direct" flag (+8, set through the scene,
     // 0x4B1C0) is set. One that is not on the disc as a file would fail -- the "disc dirty or damaged"
     // screen, or garbage such as "OBSOLETE ANIMATION!" and a crash -- so it comes from a PAK's copy
     // instead, the level's own first.
@@ -823,9 +823,9 @@ bool Declare(uint8_t* scene, const EnginePath* path, int typeId, uint32_t size)
 
 bool IsCharacterContent(const std::string& path)
 {
-    // Plus the versus select screen's pictures (see roster.cpp).
+    // Plus the characters' HUD portraits and select-screen heads (see characters.cpp).
     static const char* const kFolders[] = { "meshes\\", "animation\\", "effects\\", "textures\\",
-        "interfc\\front_end\\s_selduel_" };
+        "interfc\\hud_b\\hud_face_", "interfc\\front_end\\s_selduel_" };
     for (const char* folder : kFolders)
         if (path.rfind(folder, 0) == 0)
             return true;
