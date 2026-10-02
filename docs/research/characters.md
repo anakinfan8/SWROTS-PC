@@ -143,6 +143,27 @@ character's binding again.
 A loose mesh under a name no PAK has (a modder's own body) is declared to the level from `mods\`
 (`DeclareFromDisc`), and the mesh lists include `mods\meshes\chars\`.
 
+## Saber colours
+
+A saber's colour is a key (saber +0x814, float r, g, b) set with its vfunc **+0x604** (`SetColor`,
+thiscall `(const float rgb[3])`, `ret 4`: 0x286180 for the single-bladed sabers, vtables 0x5B1FF0,
+0x5B2620, 0x5B2C90, 0x5B32F8; 0x2864F0 for the double-bladed, 0x5B3958). The effect (0x2E1600)
+draws the pure keys (1,0,0), (0,1,0), (0,0,1), (1,0,1) with the colours of the `sabercolor` table
+(0x6512F4 blue, 0x651300 green, 0x65130C red, 0x651318 purple; the command is 0x2F4C50), any other
+key as it is; that is why `sabercolor` changes every saber of a colour.
+
+A character equipping a saber (0x280480, at 0x28054E) gives it `[character + 0xF20]` if set, else
+its own default; +0xF20 is a `const float*` override that IJedi's constructor clears and Versus sets
+per fighter (IGameManager::Init 0x27B872, from 0x650C98). The power-up switch (saber vfunc +0x614,
+0x286B90; called by the character update 0x281230 when a power-up starts and ends) brightens the key
+(blue (0,0,1) to (0.3, 0.5, 1)), which is not a pure key and so is drawn raw, the original colour
+whatever `sabercolor` says; but it does nothing when the owner's +0xF20 is set.
+
+The port's `saber` points the player's +0xF20 at its own colour (at creation, before the equip, and
+live), and recolours the player's sabers in its four weapon slots (character +0x1080, 0x20 apart) with
+`SetColor`. Only characters that are IJedi (IsA, vfunc +4, with the type key 0x249950, as the power-up
+switch asks) have the field. Cutscene events and scripts can still set a saber's colour.
+
 ## HUD portraits
 
 The game manager (`[0x7EB964]`) keeps the level's character portraits in an array at +0x260

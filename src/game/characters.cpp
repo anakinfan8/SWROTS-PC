@@ -29,6 +29,8 @@ const char* g_PlayerClass = nullptr;
 std::string g_PlayerVariant; // a costume: its name, a part of it or its number; empty for the usual one
 std::string g_PlayerMesh;    // a mesh under meshes/chars ("folder\\file"); empty for the costume's own
 std::string g_PlayerSkin;    // a texture set: its number or name; empty for the costume's usual one
+bool g_SaberColorSet = false; // the player's own saber colour (see ApplySaberColor)
+float g_SaberColor[3] = {};
 std::vector<uint8_t> g_PlayerVariants; // the player's own copy of its class's costumes, for a mesh
 
 std::string Lower(std::string text)
@@ -165,6 +167,11 @@ bool g_PlayerSpawned = false;  // a level started this boot (its player was crea
 // in this process: it is handed over as SWROTS_PLAYER, which the new process reads at its start.
 void HandChoiceToRelaunch()
 {
+    char saber[64] = {};
+    if (g_SaberColorSet)
+        sprintf_s(saber, "%d %d %d", int(g_SaberColor[0] * 255 + 0.5f), int(g_SaberColor[1] * 255 + 0.5f),
+            int(g_SaberColor[2] * 255 + 0.5f));
+    SetEnvironmentVariableA("SWROTS_SABER", g_SaberColorSet ? saber : nullptr);
     if (!g_PlayerClass && g_PlayerVariant.empty() && g_PlayerSkin.empty() && g_PlayerMesh.empty()) {
         SetEnvironmentVariableA("SWROTS_PLAYER", nullptr);
         return;
@@ -199,10 +206,69 @@ constexpr uint32_t kPlayerVariantSite = 0x000B1DE1;
 constexpr uint32_t kPlayerVariantContinue = 0x000B1DE8;
 constexpr uint8_t kPlayerVariantBytes[] = { 0x8B, 0x44, 0x24, 0x0C, 0x8B, 0x11, 0x50 };
 
+// The player's saber colour. A character's +0xF20 points at a colour (float r, g, b, 0-1) that overrides
+// its sabers' own: the equip (0x280480, at 0x28054E) gives each saber that instead of its default, and
+// the power-up switch (0x286B90, saber vfunc +0x614) leaves the colour alone while it is set (as Versus
+// does for its fighters, from 0x650C98). The game's own `sabercolor` instead remaps a colour for every
+// saber that has it. A saber's colour is set with its vfunc +0x604 (thiscall (const float rgb[3]));
+// the pure colours (1,0,0), (0,1,0), (0,0,1), (1,0,1) are drawn as the game's tuned red, green, blue,
+// purple, any other as it is (0x2E1600).
+constexpr uint32_t kCharacterSaberColor = 0xF20;
+constexpr uint32_t kCharacterWeapons = 0x1080; // 4 slots, 0x20 apart: the weapon object, or null
+constexpr int kWeaponSlots = 4;
+constexpr uint32_t kSaberSetColor = 0x604;
+constexpr uint32_t kSaberVtables[] = { 0x005B1FF0, 0x005B2620, 0x005B2C90, 0x005B32F8, 0x005B3958 };
+
+uint8_t* g_Player = nullptr;      // the level's player, from its creation (this boot)
+uint32_t g_PlayerVtable = 0;      // its vtable then: the player is still there while it matches
+
+bool PlayerAlive()
+{
+    return g_Player && *reinterpret_cast<uint32_t*>(g_Player) == g_PlayerVtable;
+}
+
+// Only the Jedi-like characters (IJedi and those built on it) have the colour override and the weapon
+// slots; asked as the power-up switch asks (0x286BB2): IsA, vfunc +4, with the type's function as its
+// key (a type reference is just that address, 0x23C820).
+constexpr uint32_t kJediType = 0x00249950;
+
+bool HasSaberColor(uint8_t* character)
+{
+    const auto isA = reinterpret_cast<bool(__fastcall*)(uint8_t*, void*, uint32_t)>(
+        (*reinterpret_cast<void* const* const*>(character))[1]);
+    return isA(character, nullptr, kJediType);
+}
+
+// Gives the player's sabers the chosen colour (or, with none, nothing: they keep theirs until the
+// next level start).
+void ApplySaberColor()
+{
+    if (!PlayerAlive() || !HasSaberColor(g_Player))
+        return;
+    *reinterpret_cast<const float**>(g_Player + kCharacterSaberColor) = g_SaberColorSet ? g_SaberColor : nullptr;
+    if (!g_SaberColorSet)
+        return;
+    for (int i = 0; i < kWeaponSlots; ++i) {
+        uint8_t* weapon = *reinterpret_cast<uint8_t**>(g_Player + kCharacterWeapons + i * 0x20);
+        if (!weapon)
+            continue;
+        const uint32_t vtable = *reinterpret_cast<uint32_t*>(weapon);
+        if (std::find(std::begin(kSaberVtables), std::end(kSaberVtables), vtable) == std::end(kSaberVtables))
+            continue;
+        const auto setColor = reinterpret_cast<void(__fastcall*)(uint8_t*, void*, const float*)>(
+            reinterpret_cast<void* const*>(uintptr_t(vtable))[kSaberSetColor / 4]);
+        setColor(weapon, nullptr, g_SaberColor);
+    }
+}
+
 int __stdcall PlayerVariant(void* player, int variant)
 {
     if (!player)
         return variant;
+    g_Player = static_cast<uint8_t*>(player);
+    g_PlayerVtable = *reinterpret_cast<uint32_t*>(player);
+    if (g_SaberColorSet && HasSaberColor(g_Player)) // before it equips its saber (ICharacter::Init)
+        *reinterpret_cast<const float**>(g_Player + kCharacterSaberColor) = g_SaberColor;
     uint8_t*& list = *reinterpret_cast<uint8_t**>(static_cast<uint8_t*>(player) + kCharacterVariants);
     int chosen = g_PlayerClass ? VariantOnDisc(player, variant) : variant;
     if (!g_PlayerVariant.empty() && list) {
@@ -450,8 +516,16 @@ void InstallCharacters()
             }
         }
     }
+    char saber[64] = {};
+    if (!environmentRead && GetEnvironmentVariableA("SWROTS_SABER", saber, sizeof(saber))) {
+        float rgb[3];
+        g_SaberColorSet = ParseSaberColor(saber, rgb);
+        if (g_SaberColorSet)
+            std::copy(rgb, rgb + 3, g_SaberColor);
+    }
     environmentRead = true;
     g_PlayerSpawned = false;
+    g_Player = nullptr;
     kernel::SetBeforeRelaunch(&HandChoiceToRelaunch);
     uint8_t* stub = AllocStub(16);
     std::memcpy(stub, reinterpret_cast<const void*>(uintptr_t(kSpawnPlayer)), 5);
@@ -672,6 +746,45 @@ int ClassTextureSetIndex(const char* className, const std::string& spec)
 {
     const uint8_t* list = FindVariantList(className);
     return list ? FindTextureSet(list, spec) : -1;
+}
+
+void SetPlayerSaberColor(const float* rgb)
+{
+    g_SaberColorSet = rgb != nullptr;
+    if (rgb)
+        std::copy(rgb, rgb + 3, g_SaberColor);
+    if (rgb)
+        ApplySaberColor(); // live: the player's sabers change now
+    else if (PlayerAlive() && HasSaberColor(g_Player))
+        *reinterpret_cast<const float**>(g_Player + kCharacterSaberColor) = nullptr;
+}
+
+bool ParseSaberColor(const std::string& spec, float* rgb)
+{
+    static const struct { const char* name; float rgb[3]; } kNamed[] = {
+        { "red", { 1, 0, 0 } }, { "green", { 0, 1, 0 } }, { "blue", { 0, 0, 1 } }, { "purple", { 1, 0, 1 } } };
+    for (const auto& named : kNamed) {
+        if (_stricmp(spec.c_str(), named.name) == 0) {
+            std::copy(named.rgb, named.rgb + 3, rgb);
+            return true;
+        }
+    }
+    int r, g, b;
+    char end;
+    if (sscanf_s(spec.c_str(), "%d %d %d %c", &r, &g, &b, &end, 1) != 3 || r < 0 || g < 0 || b < 0 || r > 255 ||
+        g > 255 || b > 255)
+        return false;
+    rgb[0] = r / 255.0f;
+    rgb[1] = g / 255.0f;
+    rgb[2] = b / 255.0f;
+    return true;
+}
+
+bool PlayerSaberColor(float* rgb)
+{
+    if (g_SaberColorSet && rgb)
+        std::copy(g_SaberColor, g_SaberColor + 3, rgb);
+    return g_SaberColorSet;
 }
 
 bool SetPlayerClass(const char* className)

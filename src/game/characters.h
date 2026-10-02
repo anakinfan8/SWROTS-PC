@@ -58,6 +58,15 @@ int ClassVariantIndex(const char* className, const std::string& spec);
 // as the player whatever body it is given.
 bool ClassHasBody(const char* className);
 
+// The player's saber colour (r, g, b, 0-1), its own only: other characters keep theirs, and power-ups
+// no longer change it. Applies at once to a running level's player, and from then on; null goes back
+// to the game's colours from the next level start. The pure colours (1,0,0), (0,1,0), (0,0,1),
+// (1,0,1) are the game's tuned red, green, blue and purple.
+void SetPlayerSaberColor(const float* rgb);
+bool PlayerSaberColor(float* rgb);
+// A colour as "red", "green", "blue", "purple" or "<r> <g> <b>" (0-255 each).
+bool ParseSaberColor(const std::string& spec, float* rgb);
+
 // The game's costume list of a class (its name without the leading I), or null.
 const uint8_t* FindVariantList(const char* className);
 

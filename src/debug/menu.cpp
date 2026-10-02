@@ -285,7 +285,7 @@ void CharactersTab()
         currentMesh.empty() ? "" : ", mesh ", currentMesh.c_str());
 
     UpdateLog();
-    const float buttonsHeight = ImGui::GetFrameHeightWithSpacing() * 2.2f + ImGui::GetTextLineHeightWithSpacing() * 3;
+    const float buttonsHeight = ImGui::GetFrameHeightWithSpacing() * 3.3f + ImGui::GetTextLineHeightWithSpacing() * 3;
     if (ImGui::BeginTable("characters", 3, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable,
             ImVec2(0, -buttonsHeight))) {
         ImGui::TableSetupColumn("Class");
@@ -392,6 +392,36 @@ void CharactersTab()
         }
         ImGui::EndChild();
         ImGui::EndTable();
+    }
+
+    // The player's saber colour: live, no restart (the `saber` command).
+    {
+        float rgb[3] = { 0, 0, 1 };
+        const bool own = game::PlayerSaberColor(rgb);
+        ImGui::TextUnformatted("Saber:");
+        ImGui::SameLine();
+        if (ImGui::RadioButton("game's", !own))
+            Submit("saber off");
+        static const struct { const char* name; float rgb[3]; } kColors[] = {
+            { "red", { 1, 0, 0 } }, { "green", { 0, 1, 0 } }, { "blue", { 0, 0, 1 } }, { "purple", { 1, 0, 1 } } };
+        for (const auto& c : kColors) {
+            ImGui::SameLine();
+            const bool on = own && rgb[0] == c.rgb[0] && rgb[1] == c.rgb[1] && rgb[2] == c.rgb[2];
+            if (ImGui::RadioButton(c.name, on))
+                Submit(std::string("saber ") + c.name);
+        }
+        ImGui::SameLine();
+        static float custom[3] = { 1.0f, 0.5f, 0.0f };
+        ImGui::ColorEdit3("##sabercolor", custom, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel);
+        if (ImGui::IsItemDeactivatedAfterEdit()) { // applied once picked, not at every drag
+            char line[64];
+            snprintf(line, sizeof(line), "saber %d %d %d", int(custom[0] * 255 + 0.5f), int(custom[1] * 255 + 0.5f),
+                int(custom[2] * 255 + 0.5f));
+            Submit(line);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Any colour for the player's saber only. Red, green, blue and purple are the\n"
+                              "game's own tuned colours; other characters keep theirs.");
     }
 
     const std::string command = PlayerCommand(picks);

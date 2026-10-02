@@ -235,6 +235,7 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  duelist [<slot> <class>] versus select slots, or put a class in one");
     Print(LineKind::Output, "  player [<class>|- [<costume>] [skin <set>] [mesh <mesh>|off]|off]");
     Print(LineKind::Output, "                           play as a character, costume or mesh (- = the level's own class)");
+    Print(LineKind::Output, "  saber [red|green|blue|purple|<r> <g> <b>|off]  the player's saber colour, its own only");
     Print(LineKind::Output, "  restart                  restart the mission");
     Print(LineKind::Output, "  autorestart [on|off]     whether player changes restart the mission at once");
     Print(LineKind::Output, "  variants <class>         a character class's costumes");
@@ -447,6 +448,32 @@ void Player(const std::vector<std::string>& words)
     PlayerChanged();
 }
 
+void Saber(const std::vector<std::string>& words)
+{
+    if (words.size() == 2 && _stricmp(words[1].c_str(), "off") == 0) {
+        game::SetPlayerSaberColor(nullptr);
+        Print(LineKind::Output, "  saber: the game's colours (from the next level start)");
+        return;
+    }
+    if (words.size() > 1) {
+        std::string spec = words[1];
+        for (size_t i = 2; i < words.size(); ++i)
+            spec += " " + words[i];
+        float rgb[3];
+        if (!game::ParseSaberColor(spec, rgb)) {
+            Print(LineKind::Error, "saber red|green|blue|purple, saber <r> <g> <b> (0-255), or saber off");
+            return;
+        }
+        game::SetPlayerSaberColor(rgb);
+    }
+    float rgb[3];
+    if (game::PlayerSaberColor(rgb))
+        Print(LineKind::Output, "  saber: %d %d %d, the player's only (Jedi-like characters: those with sabers)",
+            int(rgb[0] * 255 + 0.5f), int(rgb[1] * 255 + 0.5f), int(rgb[2] * 255 + 0.5f));
+    else
+        Print(LineKind::Output, "  saber: the game's colours");
+}
+
 void AutoRestart(const std::vector<std::string>& words)
 {
     if (words.size() == 2 && (_stricmp(words[1].c_str(), "on") == 0 || _stricmp(words[1].c_str(), "off") == 0))
@@ -541,7 +568,7 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
     if (command != "help" && command != "listvars" && command != "get" && command != "set" && command != "toggle" &&
         command != "duelist" && command != "player" && command != "variants" && command != "meshes" &&
         command != "restart" && command != "autorestart" && command != "unlockprofile" &&
-        command != "freecam")
+        command != "freecam" && command != "saber")
         return false;
     Print(LineKind::Output, "> %s", line.c_str());
     if (command == "duelist") {
@@ -558,6 +585,8 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         AutoRestart(words);
     } else if (command == "freecam") {
         FreeCamera(words);
+    } else if (command == "saber") {
+        Saber(words);
     } else if (command == "unlockprofile") {
         // The game's own developer command (TVaderGameOptions), not registered in the retail build.
         reinterpret_cast<void(__cdecl*)()>(uintptr_t(game::kUnlockProfile))();
@@ -627,7 +656,7 @@ void RunQueuedConsoleCommands()
             // and gone while a level loads).
             const std::vector<std::string> words = Words(line);
             static const char* const kStandalone[] = { "player", "variants", "meshes", "restart", "autorestart",
-                "duelist", "freecam", "clear", "cls" };
+                "duelist", "freecam", "saber", "clear", "cls" };
             const bool standalone = !words.empty() && std::any_of(std::begin(kStandalone), std::end(kStandalone),
                 [&](const char* c) { return _stricmp(words[0].c_str(), c) == 0; });
             if (standalone) {

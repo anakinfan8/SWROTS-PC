@@ -29,6 +29,7 @@ Up/Down recall earlier commands.
 | `toggle <variable>` | flips an on/off variable |
 | `duelist [<slot> <class>]` | lists the versus select screen's fighters, or puts a character class in a slot (see below) |
 | `player [<class>\|- [<costume>] [skin <set>] [mesh <mesh>\|off]\|off]` | plays story levels as another character, costume, texture set or body (see below) |
+| `saber [red\|green\|blue\|purple\|<r> <g> <b>\|off]` | the player's saber colour, its own only, at once (see below) |
 | `restart` | restarts the running mission (as the pause menu's Restart Mission does) |
 | `autorestart [on\|off]` | whether a `player` change restarts the running mission at once (on by default) |
 | `variants <class>` | lists a character class's costumes and texture sets |
@@ -158,6 +159,15 @@ Anakin works, but moves like Anakin). `mesh off` goes back to the costume's own 
 is drawn plain green. See [swapping characters](modding/swapping-characters.md) for how a mesh
 names its textures.
 
+**Saber colour.** `saber red` (or `green`, `blue`, `purple`, or any colour as `saber 255 128 0`) gives
+the player's saber its own colour at once, without a restart; other characters keep theirs, and
+power-ups no longer change it. It lasts until the game is closed (`saber off` gives the game's colours
+back from the next level start). The four names are the game's own tuned colours. Only characters
+with sabers (the Jedi-like classes) take it. The game's own `sabercolor` (below) is different: it
+redefines a colour for every saber that has it, so `sabercolor blue 255 0 0` turns every blue saber
+red, and the power-up's brighter blade (which is not one of the four colours) shows the original
+colour while it lasts.
+
 **Versus.** `player` is for story levels. In Versus it does not apply costumes, texture sets or meshes
 yet; use `duelist` (above) to choose the fighters.
 
@@ -228,6 +238,8 @@ The buttons:
 - **Back to normal** runs `player off`.
 - **Restart mission** restarts the running mission (greyed out outside a mission).
 - **Restart on apply** is `autorestart`: off, Apply only sets the character for the next level start.
+- **Saber**: the player's saber colour (`saber`), applied at once: the game's, red, green, blue,
+  purple, or any colour from the colour box.
 
 The last three lines the commands printed show under the buttons: the choice, or why it was refused.
 
