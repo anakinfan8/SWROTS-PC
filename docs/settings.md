@@ -58,6 +58,7 @@ An optional `[Debug]` section in `settings.ini`:
 | `DebugMenu=1` | The debug menu (~): the game's console and developer switches, see [debug menu](debug-menu.md) |
 | `MenuKey=~` | The key that opens the debug menu (`~`, `F1`-`F24`, `Insert`, a letter...) |
 | `DebugDisplays=1` | Lets the engine draw its debug displays: the fps counter (`fps=true` in `mods\vars_xbox.cfg`), the frame profiler and the memory display |
+| `AutoRestart=0` | Character changes in the debug menu (`player`) wait for the next level start instead of restarting the running mission |
 | `FlightRecorder=1` | Keeps the last 3 seconds of frames; Ctrl+Shift+F10 saves them to `flight\` |
 | `TraceSdk=1` | Logs the game's calls into Xbox libraries (verbose) |
 | `LogResources=1` | Logs every resource the game loads, with the path a mod file must use |

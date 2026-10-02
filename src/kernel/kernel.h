@@ -28,6 +28,9 @@ void BootInit(const void* launchData);
 // (reboot.cpp); otherwise, or as the fallback, the game process exits for the frame to
 // start it again with the launch data (core/window.h).
 void SetInProcessReboot(bool enabled);
+// Starts the game again with its current launch data, as the game's own restarts do: the running
+// mission from its start. Any thread; returns at once.
+void RestartMission();
 // Development aid: restarts the game in this process every `seconds` (SWROTS_REBOOT_EVERY), as a level
 // change does, to test what a restart leaves behind.
 void StartRebootTest(unsigned seconds);

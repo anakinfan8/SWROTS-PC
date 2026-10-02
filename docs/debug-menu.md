@@ -27,7 +27,9 @@ Up/Down recall earlier commands.
 | `<variable>=<value>` | the same, in the `vars_xbox.cfg` form |
 | `toggle <variable>` | flips an on/off variable |
 | `duelist [<slot> <class>]` | lists the versus select screen's fighters, or puts a character class in a slot (see below) |
-| `player [<class> [<costume>] [mesh <mesh>]\|mesh <mesh>\|off]` | plays levels as another character, costume or mesh, from the next level start (see below) |
+| `player [<class>\|- [<costume>] [mesh <mesh>\|off]\|off]` | plays as another character, costume or mesh (see below); `-` is each level's own class |
+| `restart` | restarts the running mission (as the pause menu's Restart Mission does) |
+| `autorestart [on\|off]` | whether a `player` change restarts the running mission at once (on by default) |
 | `variants <class>` | lists a character class's costumes |
 | `meshes [text]` | lists the character meshes on the disc (those containing the text) |
 | `unlockprofile` | the game's developer cheat: unlocks everything in the signed-in profile (story, fighters, arenas, bonus missions, concept art); the game saves it with the profile, so back up `saves\` first to keep your progress |
@@ -64,9 +66,15 @@ moveset may not work as fighters.
 
 ### Playing as another character
 
-`player <class>` makes you that character class in every level from the next level start (restart
-the level, or load another) until the game is closed; `player off` goes back to each level's own
-character, and `player` alone shows the current choice. For example, `player IVader` then restart
+The **Characters tab** does all of this with lists: pick a class, a costume and a mesh, then Apply
+(the tab runs the matching `player` command, shown under the buttons and in the console).
+
+`player <class>` makes you that character class in every level until the game is closed; `player off`
+goes back to each level's own character, and `player` alone shows the current choice. During a
+mission a change restarts it with the new character at once, like the pause menu's Restart Mission
+(from the mission's start, not the last checkpoint). `autorestart off` (or `[Debug] AutoRestart=0`
+in `settings.ini`) keeps the mission running instead; the change then applies from the next level
+start. For example, `player IVader` then restart
 Order 66, or `player IYoda`, `player ICloneTrooper`, `player IBattleDroid` in Mustafar. Characters
 the level does not contain are loaded from other levels' PAKs, like versus fighters. A character
 whose usual costume is not on the disc gets the first of its variants that is (the battle droid's
@@ -88,7 +96,11 @@ level's own character but in Obi-Wan's mesh. `meshes` lists them (`meshes obi` t
 "obi"); a mesh is named by its folder, its file or `folder\file`. A mesh made for one character has
 its skeleton's animations bound for that character; for another, the game rebuilds that binding
 (written to `cache\disc\`), and a few animations no character has (a cut part of Anakin's force jump)
-borrow a neighbouring one. `player <class> mesh off` goes back to the costume's own mesh.
+borrow a neighbouring one. `player <class> mesh off` goes back to the costume's own mesh, and
+`player - mesh <mesh>` keeps each level's own character in that mesh. A mesh of your own works too:
+put it (with its textures) under `mods\meshes\chars\<folder>\` and name it `<folder>\<file>`, or just
+`<folder>`; it appears in `meshes` and the Characters tab. Without its textures it is drawn plain
+green, and a skeleton unlike the class's (a droid's mesh on a Jedi) may look broken.
 
 Some of the game's commands:
 
@@ -98,6 +110,15 @@ Some of the game's commands:
 
 Not everything works: the Xbox release removed a lot of the developer-only code, so some variables
 (debug drawing such as `saberdebug`) and commands exist but do nothing.
+
+## Characters tab
+
+Three lists: **Class** (the classes that have costumes; *All classes* shows every class the game
+registers, most of them not characters), **Costume** (the picked class's costumes; greyed out ones
+were cut and are not on the disc) and **Mesh** (every character mesh on the disc), each with a
+filter box. *(each level's own)*, *(the usual one)* and *(the costume's own)* keep the game's choice.
+**Apply** runs the matching `player` command, **Back to normal** runs `player off`, **Restart
+mission** restarts the running mission, and *Restart on apply* is `autorestart`.
 
 ## Switches tab
 

@@ -883,6 +883,13 @@ bool DeclareFromDisc(uint8_t* scene, const EnginePath* path, int typeId, const P
         std::string name = full + 3;
         for (char& c : name)
             c = char(tolower(static_cast<unsigned char>(c)));
+        // A mod's own resource, under a name no PAK has (a new character mesh): read as a loose file.
+        WIN32_FILE_ATTRIBUTE_DATA loose{};
+        if (HasLooseCopy(full) && GetFileAttributesExW(LooseHostPath(full).c_str(), GetFileExInfoStandard, &loose) &&
+            Declare(scene, path, typeId, loose.nFileSizeLow)) {
+            LOG_INFO("Declare: %s (type %d), loose", full, typeId);
+            return true;
+        }
         const std::vector<uint8_t>* generated = Generated(name);
         if (!generated || !Declare(scene, path, typeId, uint32_t(generated->size())))
             return false;
@@ -1193,6 +1200,44 @@ std::vector<std::string> DiscResourceNames(const std::string& lowerPrefix)
                 names.push_back(entry->name);
         }
     }
+    return names;
+}
+
+namespace {
+
+void ListLoose(const std::wstring& folder, const std::string& relative, std::vector<std::string>& names)
+{
+    WIN32_FIND_DATAW found;
+    HANDLE find = FindFirstFileW((folder + L"\\*").c_str(), &found);
+    if (find == INVALID_HANDLE_VALUE)
+        return;
+    do {
+        if (found.cFileName[0] == L'.')
+            continue;
+        std::string name;
+        for (const wchar_t* c = found.cFileName; *c; ++c)
+            name += char(*c < 128 ? towlower(*c) : '_');
+        if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            ListLoose(folder + L"\\" + found.cFileName, relative + name + "\\", names);
+        else
+            names.push_back(relative + name);
+    } while (FindNextFileW(find, &found));
+    FindClose(find);
+}
+
+} // namespace
+
+std::vector<std::string> LooseResourceNames(const std::string& lowerPrefix)
+{
+    std::vector<std::string> names;
+    if (g_Mods.empty())
+        return names;
+    std::wstring folder = g_Mods + L"\\"; // g_Mods has no trailing backslash (see LooseHostPath)
+    for (char c : lowerPrefix)
+        folder += wchar_t(static_cast<unsigned char>(c));
+    while (folder.back() == L'\\')
+        folder.pop_back();
+    ListLoose(folder, lowerPrefix, names);
     return names;
 }
 

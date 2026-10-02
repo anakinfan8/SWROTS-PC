@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "core/log.h"
@@ -99,8 +100,12 @@ int FindVariant(const uint8_t* list, const std::string& spec)
 using SpawnPlayerFn = void(__cdecl*)(void* playerClass, int variant);
 SpawnPlayerFn g_OriginalSpawnPlayer = nullptr;
 
+bool g_PlayerSpawned = false;  // a level started this boot (its player was created)
+bool g_RestartOnChange = true; // a change restarts the mission ([Debug] AutoRestart)
+
 void __cdecl SpawnPlayerHook(void* playerClass, int variant)
 {
+    g_PlayerSpawned = true;
     if (g_PlayerClass && playerClass) {
         auto assign = reinterpret_cast<void(__fastcall*)(void*, void*, const char*)>(uintptr_t(kTStringAssign));
         assign(playerClass, nullptr, g_PlayerClass);
@@ -328,6 +333,7 @@ void InstallCharacters()
         }
     }
     environmentRead = true;
+    g_PlayerSpawned = false;
     uint8_t* stub = AllocStub(16);
     std::memcpy(stub, reinterpret_cast<const void*>(uintptr_t(kSpawnPlayer)), 5);
     stub[5] = 0xE9;
@@ -356,12 +362,15 @@ void InstallCharacters()
     }
 }
 
-const uint8_t* FindVariantList(const char* className)
+// Every costume list in the image, by the name its header gives (lower case), found once: the lists
+// are static data, the same at every boot.
+const std::unordered_map<std::string, const uint8_t*>& VariantLists()
 {
-    if (!className)
-        return nullptr;
-    // The list names the class without its "I" (IAnakin -> Anakin).
-    const char* wanted = (className[0] == 'I' || className[0] == 'i') && className[1] ? className + 1 : className;
+    static std::unordered_map<std::string, const uint8_t*> lists;
+    static bool scanned = false;
+    if (scanned)
+        return lists;
+    scanned = true;
     const auto isText = [](uint32_t p) {
         if (p < kRDataStart || p >= kRDataEnd)
             return false;
@@ -374,17 +383,63 @@ const uint8_t* FindVariantList(const char* className)
         }
         return false;
     };
+    // A header's name, then (at +0x2C) a first record: a costume name without a backslash and its mesh
+    // ("Folder\File") with one.
     for (uint32_t a = kDataStart; a + kVariantRecords + kVariantRecordSize <= kDataEnd; a += 4) {
         const uint32_t name = *reinterpret_cast<const uint32_t*>(uintptr_t(a));
-        if (!isText(name) || _stricmp(reinterpret_cast<const char*>(uintptr_t(name)), wanted) != 0)
+        if (!isText(name))
             continue;
         const uint32_t first = *reinterpret_cast<const uint32_t*>(uintptr_t(a + kVariantRecords));
         const uint32_t mesh = *reinterpret_cast<const uint32_t*>(uintptr_t(a + kVariantRecords + 4));
         if (isText(first) && isText(mesh) && !std::strchr(reinterpret_cast<const char*>(uintptr_t(first)), '\\') &&
             std::strchr(reinterpret_cast<const char*>(uintptr_t(mesh)), '\\'))
-            return reinterpret_cast<const uint8_t*>(uintptr_t(a));
+            lists.emplace(Lower(reinterpret_cast<const char*>(uintptr_t(name))), reinterpret_cast<const uint8_t*>(uintptr_t(a)));
     }
-    return nullptr;
+    return lists;
+}
+
+const uint8_t* FindVariantList(const char* className)
+{
+    if (!className)
+        return nullptr;
+    // The list names the class without its "I" (IAnakin -> Anakin).
+    const char* wanted = (className[0] == 'I' || className[0] == 'i') && className[1] ? className + 1 : className;
+    const auto& lists = VariantLists();
+    const auto it = lists.find(Lower(wanted));
+    return it != lists.end() ? it->second : nullptr;
+}
+
+std::vector<std::string> CharacterClasses(bool all)
+{
+    std::vector<std::string> out;
+    auto* registry = *reinterpret_cast<uint8_t**>(uintptr_t(kClassRegistry));
+    if (!registry)
+        return out;
+    auto** buckets = reinterpret_cast<uint8_t**>(registry + kClassRegistryBuckets);
+    for (int b = 0; b < kClassRegistryBucketCount; ++b) {
+        for (uint8_t* node = buckets[b]; node; node = *reinterpret_cast<uint8_t**>(node + 8)) {
+            const char* className = *reinterpret_cast<const char**>(node + 4);
+            if (className && (all || FindVariantList(className)))
+                out.push_back(className);
+        }
+    }
+    std::sort(out.begin(), out.end(), [](const std::string& x, const std::string& y) { return _stricmp(x.c_str(), y.c_str()) < 0; });
+    return out;
+}
+
+bool PlayerInLevel()
+{
+    return g_PlayerSpawned;
+}
+
+void SetRestartOnChange(bool enabled)
+{
+    g_RestartOnChange = enabled;
+}
+
+bool RestartOnChange()
+{
+    return g_RestartOnChange;
 }
 
 int ClassVariantIndex(const char* className, const std::string& spec)
@@ -406,7 +461,10 @@ std::vector<std::string> CharacterMeshes(const std::string& filter)
     std::vector<std::string> out;
     const std::string want = Lower(filter);
     const std::string prefix = "meshes\\chars\\";
-    for (const std::string& name : DiscResourceNames(prefix)) {
+    std::vector<std::string> names = DiscResourceNames(prefix);
+    for (const std::string& name : LooseResourceNames(prefix)) // a mod's own meshes
+        names.push_back(name);
+    for (const std::string& name : names) {
         if (name.size() < prefix.size() + 4 || name.compare(name.size() - 4, 4, ".msh") != 0)
             continue;
         std::string mesh = name.substr(prefix.size(), name.size() - prefix.size() - 4);

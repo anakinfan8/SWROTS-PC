@@ -15,6 +15,7 @@
 #include "game/game.h"
 #include "game/characters.h"
 #include "game/versus.h"
+#include "kernel/kernel.h"
 
 namespace swrots::debug {
 
@@ -231,8 +232,10 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  toggle <variable>        (on/off variables)");
     Print(LineKind::Output, "  listvars [text]          all variables, or those whose name contains text");
     Print(LineKind::Output, "  duelist [<slot> <class>] versus select slots, or put a class in one");
-    Print(LineKind::Output, "  player [<class> [<costume>] [mesh <mesh>]|mesh <mesh>|off]");
-    Print(LineKind::Output, "                           play levels (from the next start) as a character, costume or mesh");
+    Print(LineKind::Output, "  player [<class>|- [<costume>] [mesh <mesh>|off]|off]");
+    Print(LineKind::Output, "                           play as a character, costume or mesh (- = the level's own class)");
+    Print(LineKind::Output, "  restart                  restart the mission");
+    Print(LineKind::Output, "  autorestart [on|off]     whether player changes restart the mission at once");
     Print(LineKind::Output, "  variants <class>         a character class's costumes");
     Print(LineKind::Output, "  meshes [text]            the character meshes on the disc (those containing text)");
     Print(LineKind::Output, "  unlockprofile            unlock everything in the signed-in profile (it is saved with it)");
@@ -324,10 +327,31 @@ void ShowPlayer()
     }
     Print(LineKind::Output, "  player: %s%s%s%s%s", current ? current : "the level's own class",
         variant.empty() ? "" : ", costume ", variant.c_str(), mesh.empty() ? "" : ", mesh ", mesh.c_str());
-    Print(LineKind::Output, "  (from the next level start: restart the level to see it)");
 }
 
-// player [<class> [<costume>] [mesh <mesh>] | mesh <mesh>|off | off]
+void Restart()
+{
+    if (!game::PlayerInLevel()) {
+        Print(LineKind::Error, "no mission is running");
+        return;
+    }
+    Print(LineKind::Output, "  restarting the mission...");
+    kernel::RestartMission();
+}
+
+// After a change of character: the mission restarts with it, or it waits for the next level start.
+void PlayerChanged()
+{
+    ShowPlayer();
+    if (game::PlayerInLevel() && game::RestartOnChange())
+        Restart();
+    else if (game::PlayerInLevel())
+        Print(LineKind::Output, "  (from the next level start: restart to see it, or autorestart on)");
+    else
+        Print(LineKind::Output, "  (from the next level start)");
+}
+
+// player [<class>|- [<costume>] [mesh <mesh>|off] | mesh <mesh>|off | off]
 void Player(const std::vector<std::string>& words)
 {
     if (words.size() == 1) {
@@ -336,7 +360,7 @@ void Player(const std::vector<std::string>& words)
     }
     if (_stricmp(words[1].c_str(), "off") == 0 && words.size() == 2) {
         game::SetPlayerClass(nullptr);
-        ShowPlayer();
+        PlayerChanged();
         return;
     }
     // The mesh, from "mesh <mesh>" anywhere after the class.
@@ -363,7 +387,14 @@ void Player(const std::vector<std::string>& words)
             rest.push_back(words[i]);
         }
     }
-    if (!rest.empty()) {
+    if (!rest.empty() && rest[0] == "-") {
+        // Each level's own class (and so its own costume).
+        if (rest.size() > 1) {
+            Print(LineKind::Error, "a costume needs a class: player <class> <costume>");
+            return;
+        }
+        game::SetPlayerClass(nullptr);
+    } else if (!rest.empty()) {
         const char* name = game::RegisteredClassName(rest[0].c_str());
         if (!name) {
             Print(LineKind::Error, "%s: not a class the game knows", rest[0].c_str());
@@ -394,7 +425,19 @@ void Player(const std::vector<std::string>& words)
                     mesh.c_str());
         }
     }
-    ShowPlayer();
+    PlayerChanged();
+}
+
+void AutoRestart(const std::vector<std::string>& words)
+{
+    if (words.size() == 2 && (_stricmp(words[1].c_str(), "on") == 0 || _stricmp(words[1].c_str(), "off") == 0))
+        game::SetRestartOnChange(_stricmp(words[1].c_str(), "on") == 0);
+    else if (words.size() != 1) {
+        Print(LineKind::Error, "autorestart [on|off]");
+        return;
+    }
+    Print(LineKind::Output, "  autorestart: %s", game::RestartOnChange() ? "on (player changes restart the mission)" :
+        "off (player changes apply from the next level start)");
 }
 
 void Variants(const std::vector<std::string>& words)
@@ -453,7 +496,7 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
     }
     if (command != "help" && command != "listvars" && command != "get" && command != "set" && command != "toggle" &&
         command != "duelist" && command != "player" && command != "variants" && command != "meshes" &&
-        command != "unlockprofile")
+        command != "restart" && command != "autorestart" && command != "unlockprofile")
         return false;
     Print(LineKind::Output, "> %s", line.c_str());
     if (command == "duelist") {
@@ -464,6 +507,10 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         Variants(words);
     } else if (command == "meshes") {
         Meshes(words);
+    } else if (command == "restart") {
+        Restart();
+    } else if (command == "autorestart") {
+        AutoRestart(words);
     } else if (command == "unlockprofile") {
         // The game's own developer command (TVaderGameOptions), not registered in the retail build.
         reinterpret_cast<void(__cdecl*)()>(uintptr_t(game::kUnlockProfile))();

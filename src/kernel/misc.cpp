@@ -334,6 +334,19 @@ void RelaunchProcess(const void* launchData)
     ExitProcess(0);
 }
 
+void RestartMission()
+{
+    LogFlush();
+    // From a thread of its own: the reboot stops every game thread, the caller's too.
+    HANDLE worker = CreateThread(nullptr, 0, [](void*) -> DWORD {
+        if (g_InProcessReboot)
+            RebootInProcess(LaunchDataPage); // ends this thread; the reboot worker takes over
+        RelaunchProcess(LaunchDataPage);
+    }, nullptr, 0, nullptr);
+    if (worker)
+        CloseHandle(worker);
+}
+
 void StartRebootTest(unsigned seconds)
 {
     if (!seconds)
@@ -344,13 +357,7 @@ void StartRebootTest(unsigned seconds)
         for (;;) {
             Sleep(ms);
             LOG_INFO("Reboot test: restarting");
-            LogFlush();
-            HANDLE worker = CreateThread(nullptr, 0, [](void*) -> DWORD {
-                RebootInProcess(LaunchDataPage); // ends this thread; the reboot worker takes over
-                return 0;
-            }, nullptr, 0, nullptr);
-            if (worker)
-                CloseHandle(worker);
+            RestartMission();
         }
     }, reinterpret_cast<void*>(uintptr_t(seconds)), 0, nullptr);
     if (thread)

@@ -14,6 +14,7 @@
 #include "backends/imgui_impl_win32.h"
 #include "core/log.h"
 #include "debug/console.h"
+#include "game/characters.h"
 #include "game/game.h"
 #include "imgui.h"
 
@@ -196,6 +197,182 @@ void SwitchesTab()
         ImGui::TextDisabled("The engine's options do not exist yet.");
 }
 
+// --- Characters tab ----------------------------------------------------------------------------
+// Picks a class, a costume and a mesh, and applies them as one `player` command (shown in the
+// console like a typed one).
+
+struct CharacterPicks {
+    bool loaded = false;   // the picks were taken from the current choice
+    std::string className; // empty: each level's own
+    std::string costume;   // a costume name; empty: the usual one
+    std::string mesh;      // "folder\file"; empty: the costume's own
+    char classFilter[64] = "";
+    char meshFilter[64] = "";
+    bool allClasses = false;
+};
+CharacterPicks g_Picks;
+std::vector<std::string> g_Classes; // cached: the registry does not change once filled
+bool g_ClassesAll = false;
+std::vector<std::string> g_Meshes;
+
+bool Contains(const std::string& text, const char* filter)
+{
+    if (!filter[0])
+        return true;
+    std::string a = text, b = filter;
+    for (char& c : a)
+        c = char(tolower(static_cast<unsigned char>(c)));
+    for (char& c : b)
+        c = char(tolower(static_cast<unsigned char>(c)));
+    return a.find(b) != std::string::npos;
+}
+
+std::string PlayerCommand(const CharacterPicks& picks)
+{
+    if (picks.className.empty() && picks.mesh.empty())
+        return "player off";
+    std::string line = "player " + (picks.className.empty() ? std::string("-") : picks.className);
+    if (!picks.className.empty() && !picks.costume.empty())
+        line += " " + picks.costume;
+    line += " mesh " + (picks.mesh.empty() ? std::string("off") : picks.mesh);
+    return line;
+}
+
+void CharactersTab()
+{
+    CharacterPicks& picks = g_Picks;
+    if (!picks.loaded) {
+        picks.loaded = true;
+        picks.className = game::PlayerClass() ? game::PlayerClass() : "";
+        picks.mesh = game::PlayerMesh();
+        const int index = picks.className.empty() ? -1 :
+            game::ClassVariantIndex(picks.className.c_str(), game::PlayerVariantChoice());
+        const std::vector<game::Variant> variants = game::ClassVariants(picks.className.c_str());
+        picks.costume = index >= 0 && index < int(variants.size()) ? variants[index].name : "";
+    }
+    if (g_Classes.empty() || g_ClassesAll != picks.allClasses) {
+        g_Classes = game::CharacterClasses(picks.allClasses);
+        g_ClassesAll = picks.allClasses;
+    }
+    if (g_Meshes.empty())
+        g_Meshes = game::CharacterMeshes("");
+
+    // Now playing, and what Apply would make of the picks.
+    const char* current = game::PlayerClass();
+    const std::string currentCostume = game::PlayerVariantChoice(), currentMesh = game::PlayerMesh();
+    ImGui::Text("Now: %s%s%s%s%s", current ? current : "each level's own character",
+        currentCostume.empty() ? "" : ", costume ", currentCostume.c_str(),
+        currentMesh.empty() ? "" : ", mesh ", currentMesh.c_str());
+
+    const float buttonsHeight = ImGui::GetFrameHeightWithSpacing() * 2.2f;
+    if (ImGui::BeginTable("characters", 3, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable,
+            ImVec2(0, -buttonsHeight))) {
+        ImGui::TableSetupColumn("Class");
+        ImGui::TableSetupColumn("Costume");
+        ImGui::TableSetupColumn("Mesh");
+        ImGui::TableHeadersRow();
+        ImGui::TableNextRow();
+
+        // Classes.
+        ImGui::TableNextColumn();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##classfilter", "filter", picks.classFilter, sizeof(picks.classFilter));
+        if (ImGui::Checkbox("All classes", &picks.allClasses))
+            g_Classes.clear();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Every class the game registers, not only those with costumes.\nMost are not characters.");
+        if (ImGui::BeginChild("classes", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
+            if (ImGui::Selectable("(each level's own)", picks.className.empty())) {
+                picks.className.clear();
+                picks.costume.clear();
+            }
+            for (const std::string& name : g_Classes) {
+                if (!Contains(name, picks.classFilter))
+                    continue;
+                if (ImGui::Selectable(name.c_str(), _stricmp(name.c_str(), picks.className.c_str()) == 0) &&
+                    picks.className != name) {
+                    picks.className = name;
+                    picks.costume.clear();
+                }
+            }
+            if (g_Classes.empty())
+                ImGui::TextDisabled("The classes are registered once\nthe game has started.");
+        }
+        ImGui::EndChild();
+
+        // Costumes of the picked class.
+        ImGui::TableNextColumn();
+        if (ImGui::BeginChild("costumes", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
+            if (picks.className.empty()) {
+                ImGui::TextDisabled("Each level's own character\nwears its own costume.");
+            } else {
+                static std::string variantsOf;
+                static std::vector<game::Variant> variants; // looked up once per class (each asks the disc)
+                if (variantsOf != picks.className) {
+                    variantsOf = picks.className;
+                    variants = game::ClassVariants(picks.className.c_str());
+                }
+                if (ImGui::Selectable("(the usual one)", picks.costume.empty()))
+                    picks.costume.clear();
+                for (size_t i = 0; i < variants.size(); ++i) {
+                    char label[96];
+                    snprintf(label, sizeof(label), "%2zu  %s", i, variants[i].name);
+                    if (!variants[i].onDisc)
+                        ImGui::BeginDisabled();
+                    if (ImGui::Selectable(label, picks.costume == variants[i].name))
+                        picks.costume = variants[i].name;
+                    if (!variants[i].onDisc)
+                        ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                        ImGui::SetTooltip("%s%s", variants[i].mesh, variants[i].onDisc ? "" : "\nNot on the disc (cut).");
+                }
+                if (variants.empty())
+                    ImGui::TextDisabled("No costume list.");
+            }
+        }
+        ImGui::EndChild();
+
+        // Meshes.
+        ImGui::TableNextColumn();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        ImGui::InputTextWithHint("##meshfilter", "filter", picks.meshFilter, sizeof(picks.meshFilter));
+        if (ImGui::BeginChild("meshes", ImVec2(0, 0), ImGuiChildFlags_Borders)) {
+            if (ImGui::Selectable("(the costume's own)", picks.mesh.empty()))
+                picks.mesh.clear();
+            for (const std::string& mesh : g_Meshes)
+                if (Contains(mesh, picks.meshFilter) && ImGui::Selectable(mesh.c_str(), picks.mesh == mesh))
+                    picks.mesh = mesh;
+        }
+        ImGui::EndChild();
+        ImGui::EndTable();
+    }
+
+    const std::string command = PlayerCommand(picks);
+    if (ImGui::Button("Apply"))
+        Submit(command);
+    ImGui::SameLine();
+    if (ImGui::Button("Back to normal")) {
+        picks = CharacterPicks();
+        picks.loaded = true;
+        Submit("player off");
+    }
+    ImGui::SameLine();
+    if (!game::PlayerInLevel())
+        ImGui::BeginDisabled();
+    if (ImGui::Button("Restart mission"))
+        Submit("restart");
+    if (!game::PlayerInLevel())
+        ImGui::EndDisabled();
+    ImGui::SameLine();
+    bool autoRestart = game::RestartOnChange();
+    if (ImGui::Checkbox("Restart on apply", &autoRestart))
+        Submit(autoRestart ? "autorestart on" : "autorestart off");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Applying restarts the running mission with the new character.\n"
+                          "Off: it applies from the next level start. [Debug] AutoRestart in settings.ini.");
+    ImGui::TextDisabled("%s", command.c_str());
+}
+
 // Square corners, in the colours of the Slayer engine's own debug windows (Indiana Jones and
 // Marc Ecko's Getting Up): white text, grey title bars, a dark see-through body.
 void ApplyTheme()
@@ -279,6 +456,10 @@ void BuildMenu()
         if (ImGui::BeginTabBar("tabs")) {
             if (ImGui::BeginTabItem("Console")) {
                 ConsoleTab();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Characters")) {
+                CharactersTab();
                 ImGui::EndTabItem();
             }
             if (ImGui::BeginTabItem("Switches")) {

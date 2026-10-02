@@ -253,6 +253,7 @@ static void Run(void* reserveBase, unsigned reserveSize, void* contiguousBase, u
     wchar_t menuKey[32] = L"";
     GetPrivateProfileStringW(L"Debug", L"MenuKey", L"~", menuKey, 32, ini.c_str());
     debug::ConfigureMenu(GetPrivateProfileIntW(L"Debug", L"DebugMenu", 0, ini.c_str()) != 0, menuKey);
+    game::SetRestartOnChange(GetPrivateProfileIntW(L"Debug", L"AutoRestart", 1, ini.c_str()) != 0);
     d3d::ConfigureFlightRecorder(GetPrivateProfileIntW(L"Debug", L"FlightRecorder", 0, ini.c_str()) != 0,
         exeDir + L"\\flight");
     InstallCrashHandler();

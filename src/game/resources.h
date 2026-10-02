@@ -40,6 +40,10 @@ bool ReadDiscResource(const std::string& lowerName, std::vector<uint8_t>& data);
 // The names of the resources on the disc's PAKs starting with `lowerPrefix`.
 std::vector<std::string> DiscResourceNames(const std::string& lowerPrefix);
 
+// The loose files under mods\ starting with `lowerPrefix` (a folder, e.g. "meshes\\chars\\"), named as
+// resources (lower case, relative).
+std::vector<std::string> LooseResourceNames(const std::string& lowerPrefix);
+
 // Declares a generated resource of `typeId` in the current level, for engine code that checks a
 // resource is declared before asking for it. False when it was declared already or is not made.
 bool DeclareGeneratedResource(const std::string& lowerName, int typeId);

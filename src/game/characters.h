@@ -45,6 +45,18 @@ int ClassVariantIndex(const char* className, const std::string& spec);
 // The game's costume list of a class (its name without the leading I), or null.
 const uint8_t* FindVariantList(const char* className);
 
+// The registered character classes that have costumes (all registered classes with `all`), sorted;
+// empty until the game has registered them.
+std::vector<std::string> CharacterClasses(bool all);
+
+// True once a level's player was created since the last boot (a level is running).
+bool PlayerInLevel();
+
+// Whether a change of character restarts the running mission at once ([Debug] AutoRestart, on by
+// default); otherwise it applies from the next level start.
+void SetRestartOnChange(bool enabled);
+bool RestartOnChange();
+
 // The character meshes in the disc's PAKs ("folder\file", lower case), those containing `filter`.
 std::vector<std::string> CharacterMeshes(const std::string& filter);
 
