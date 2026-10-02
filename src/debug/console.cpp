@@ -241,6 +241,7 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "                           play as a character, costume or mesh (- = the level's own class)");
     Print(LineKind::Output, "  saber [red|green|blue|purple|<r> <g> <b>|off]  the player's saber colour, its own only");
     Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>]  a character in front of the player");
+    Print(LineKind::Output, "  infiniteforce [on|off]   your Force stays full");
     Print(LineKind::Output, "  restart                  restart the mission");
     Print(LineKind::Output, "  autorestart [on|off]     whether player changes restart the mission at once");
     Print(LineKind::Output, "  variants <class>         a character class's costumes");
@@ -527,6 +528,41 @@ void Spawn(const std::vector<std::string>& words)
         Print(LineKind::Error, "%s", error.c_str());
 }
 
+// peek <hex offset> [count]: the player object's dwords from there, as hex and as floats (research).
+void Peek(const std::vector<std::string>& words)
+{
+    uint8_t* player = game::PlayerObject();
+    if (!player || words.size() < 2) {
+        Print(LineKind::Error, player ? "peek <hex offset> [count]" : "no mission is running");
+        return;
+    }
+    const uint32_t offset = uint32_t(strtoul(words[1].c_str(), nullptr, 16)) & ~3u;
+    const int count = words.size() > 2 ? std::clamp(atoi(words[2].c_str()), 1, 64) : 8;
+    for (int i = 0; i < count; ++i) {
+        uint32_t value = 0;
+        __try {
+            value = *reinterpret_cast<const uint32_t*>(player + offset + i * 4);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            Print(LineKind::Error, "  +%X: unreadable", offset + i * 4);
+            return;
+        }
+        float f;
+        std::memcpy(&f, &value, 4);
+        Print(LineKind::Output, "  +%03X: %08X  %g", offset + i * 4, value, f);
+    }
+}
+
+void InfiniteForceCommand(const std::vector<std::string>& words)
+{
+    if (words.size() == 2 && (_stricmp(words[1].c_str(), "on") == 0 || _stricmp(words[1].c_str(), "off") == 0))
+        game::SetInfiniteForce(_stricmp(words[1].c_str(), "on") == 0);
+    else if (words.size() != 1) {
+        Print(LineKind::Error, "infiniteforce [on|off]");
+        return;
+    }
+    Print(LineKind::Output, "  infinite Force: %s", game::InfiniteForce() ? "on" : "off");
+}
+
 void AutoRestart(const std::vector<std::string>& words)
 {
     if (words.size() == 2 && (_stricmp(words[1].c_str(), "on") == 0 || _stricmp(words[1].c_str(), "off") == 0))
@@ -621,7 +657,8 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
     if (command != "help" && command != "listvars" && command != "get" && command != "set" && command != "toggle" &&
         command != "duelist" && command != "player" && command != "variants" && command != "meshes" &&
         command != "restart" && command != "autorestart" && command != "unlockprofile" &&
-        command != "freecam" && command != "saber" && command != "spawn")
+        command != "freecam" && command != "saber" && command != "spawn" && command != "peek" &&
+        command != "infiniteforce")
         return false;
     Print(LineKind::Output, "> %s", line.c_str());
     if (command == "duelist") {
@@ -642,6 +679,10 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         Saber(words);
     } else if (command == "spawn") {
         Spawn(words);
+    } else if (command == "peek") {
+        Peek(words);
+    } else if (command == "infiniteforce") {
+        InfiniteForceCommand(words);
     } else if (command == "unlockprofile") {
         // The game's own developer command (TVaderGameOptions), not registered in the retail build.
         reinterpret_cast<void(__cdecl*)()>(uintptr_t(game::kUnlockProfile))();
@@ -731,7 +772,7 @@ void RunQueuedConsoleCommands()
             // and gone while a level loads).
             const std::vector<std::string> words = Words(line);
             static const char* const kStandalone[] = { "player", "variants", "meshes", "restart", "autorestart",
-                "duelist", "freecam", "saber", "spawn", "clear", "cls" };
+                "duelist", "freecam", "saber", "spawn", "peek", "infiniteforce", "clear", "cls" };
             const bool standalone = !words.empty() && std::any_of(std::begin(kStandalone), std::end(kStandalone),
                 [&](const char* c) { return _stricmp(words[0].c_str(), c) == 0; });
             if (standalone) {

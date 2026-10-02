@@ -213,6 +213,15 @@ The port refuses spawns that would do this; a spawn takes no other body.
   being simulated and drawn; no instance removal function was found (0xB63F0 initializes and
   registers, 0xB4CC0 finds by id).
 
+## Health and Force
+
+A character's health is a float at **+0x130** and its maximum at **+0x134** (1000 for Anakin, 50 for a
+clone trooper); Force power at **+0xA40** and its maximum at **+0xA44**, on the Jedi-like characters.
+The game's `health`, `maxhealth` and `power` variables only set them, on the player (0x150420,
+0x150450, 0x150480, through 0xA3130); read back they give what was last set, not the player's values,
+and so do `forcelevel`, `combatskilllevel` and `forcepowerlevel`. `god` (options +0xC9) covers health
+only; the port's infinite Force keeps +0xA40 at +0xA44 every frame.
+
 ## HUD portraits
 
 The game manager (`[0x7EB964]`) keeps the level's character portraits in an array at +0x260

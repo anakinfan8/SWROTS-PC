@@ -622,13 +622,20 @@ void GameTab()
         ImGui::Text("Position %.0f %.0f %.0f   facing %.0f degrees", player.position[0], player.position[1],
             player.position[2], player.facing);
         if (player.hasPower)
-            ImGui::Text("Health %.0f / %.0f   Force power %.0f", player.health, player.maxHealth, player.power);
+            ImGui::Text("Health %.0f / %.0f   Force %.0f / %.0f", player.health, player.maxHealth, player.power,
+                player.maxPower);
         else
             ImGui::Text("Health %.0f / %.0f", player.health, player.maxHealth);
     } else {
         ImGui::TextDisabled("No mission is running.");
     }
     OptionCheckbox("God mode (god)", game::kOptionsGod, false, "The player takes no damage.");
+    ImGui::SameLine();
+    bool infiniteForce = game::InfiniteForce();
+    if (ImGui::Checkbox("Infinite Force", &infiniteForce))
+        Submit(infiniteForce ? "infiniteforce on" : "infiniteforce off");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Your Force stays full (infiniteforce). Jedi-like characters.");
     ImGui::SameLine();
     if (!player.valid)
         ImGui::BeginDisabled();
@@ -947,6 +954,7 @@ void RenderMenu()
 void MenuAfterFrame()
 {
     RunQueuedConsoleCommands();
+    game::PlayerFrame();
 }
 
 } // namespace swrots::debug

@@ -31,6 +31,8 @@ Up/Down recall earlier commands.
 | `player [<class>\|- [<costume>] [skin <set>] [mesh <mesh>\|off]\|off]` | plays story levels as another character, costume, texture set or body (see below) |
 | `saber [red\|green\|blue\|purple\|<r> <g> <b>\|off]` | the player's saber colour, its own only, at once (see below) |
 | `spawn <class> [<costume>] [skin <set>]` | a character in front of you, at once (see below) |
+| `infiniteforce [on\|off]` | your Force stays full |
+| `peek <hex offset> [count]` | research: your character's fields from that offset, as hex and as numbers, in the console and log |
 | `restart` | restarts the running mission (as the pause menu's Restart Mission does) |
 | `autorestart [on\|off]` | whether a `player` change restarts the running mission at once (on by default) |
 | `variants <class>` | lists a character class's costumes and texture sets |
@@ -269,8 +271,9 @@ Your character's live data and quick helpers, the game's own variables (the ones
 switches, in one place.
 
 - **Player**: your class and costume, position and facing, health and maximum health, and Force
-  power (Jedi-like characters), read from your character as you play (outside a mission: none; `player`
-  in the console prints the same). **God mode**, **Refill health**, **Max health** (100 to 1000, filled
+  and maximum Force (Jedi-like characters), read from your character as you play (outside a mission: none; `player`
+  in the console prints the same). **God mode**, **Infinite Force** (`infiniteforce`: your Force stays full; the game
+  has no switch for it), **Refill health**, **Max health** (100 to 1000, filled
   at once: a clone or droid has 50, a Jedi 1000; until the mission restarts), buttons setting the
   **Force level**, **combat skill** and **Force power level** (0 to 3: they unlock moves and powers; the
   game's variables only set them, so the current level is not shown), and **your saber** colour

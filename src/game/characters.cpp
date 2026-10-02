@@ -872,7 +872,31 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
 
 constexpr uint32_t kCharacterHealth = 0x130;
 constexpr uint32_t kCharacterMaxHealth = 0x134;
-constexpr uint32_t kCharacterPower = 0xA40;
+constexpr uint32_t kCharacterPower = 0xA40;    // Force power, as `power` sets it (0x150480)
+constexpr uint32_t kCharacterMaxPower = 0xA44; // its maximum (1000 for Anakin)
+bool g_InfiniteForce = false;
+
+void SetInfiniteForce(bool on)
+{
+    g_InfiniteForce = on;
+}
+
+bool InfiniteForce()
+{
+    return g_InfiniteForce;
+}
+
+void PlayerFrame()
+{
+    // Infinite Force: the player's Force kept at its maximum (Jedi-like characters have it).
+    if (g_InfiniteForce && PlayerAlive() && HasSaberColor(g_Player))
+        *reinterpret_cast<float*>(g_Player + kCharacterPower) = *reinterpret_cast<const float*>(g_Player + kCharacterMaxPower);
+}
+
+uint8_t* PlayerObject()
+{
+    return PlayerAlive() ? g_Player : nullptr;
+}
 
 void SetPlayerMaxHealth(float health)
 {
@@ -910,8 +934,10 @@ PlayerInfo CurrentPlayer()
     info.health = *reinterpret_cast<const float*>(g_Player + kCharacterHealth);
     info.maxHealth = *reinterpret_cast<const float*>(g_Player + kCharacterMaxHealth);
     info.hasPower = HasSaberColor(g_Player);
-    if (info.hasPower)
+    if (info.hasPower) {
         info.power = *reinterpret_cast<const float*>(g_Player + kCharacterPower);
+        info.maxPower = *reinterpret_cast<const float*>(g_Player + kCharacterMaxPower);
+    }
     return info;
 }
 

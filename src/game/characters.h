@@ -75,11 +75,18 @@ struct PlayerInfo {
     float facing = 0;
     float health = 0, maxHealth = 0;
     bool hasPower = false; // Jedi-like characters have Force power
-    float power = 0;
+    float power = 0, maxPower = 0;
 };
 PlayerInfo CurrentPlayer();
 // Sets the running level's player's maximum health and fills it (a clone trooper has a few hits' worth).
 void SetPlayerMaxHealth(float health);
+// The running level's player object, or null (for research tools such as `peek`).
+uint8_t* PlayerObject();
+// Infinite Force: the player's Force kept at its maximum (the game's `god` covers only health).
+void SetInfiniteForce(bool on);
+bool InfiniteForce();
+// Once a frame, on the game thread: keeps up what the switches above ask for.
+void PlayerFrame();
 // Gives the running level's player its maximum health back.
 void RefillPlayerHealth();
 
