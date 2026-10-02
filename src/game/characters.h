@@ -65,6 +65,27 @@ bool ClassHasBody(const char* className);
 bool SpawnCharacter(const char* className, const std::string& costume, const std::string& skin,
     const std::string& mesh, std::string& error);
 
+// The running level's player, for display: its class (type name), costume, position and heading
+// (degrees about the up axis). `valid` is false outside a level.
+struct PlayerInfo {
+    bool valid = false;
+    std::string className;
+    std::string costume;
+    float position[3] = {};
+    float facing = 0;
+    float health = 0, maxHealth = 0;
+    bool hasPower = false; // Jedi-like characters have Force power
+    float power = 0;
+};
+PlayerInfo CurrentPlayer();
+// Sets the running level's player's maximum health and fills it (a clone trooper has a few hits' worth).
+void SetPlayerMaxHealth(float health);
+// Gives the running level's player its maximum health back.
+void RefillPlayerHealth();
+
+// The characters spawned in the running level.
+int SpawnedCount();
+
 // The player's saber colour (r, g, b, 0-1), its own only: other characters keep theirs, and power-ups
 // no longer change it. Applies at once to a running level's player, and from then on; null goes back
 // to the game's colours from the next level start. The pure colours (1,0,0), (0,1,0), (0,0,1),

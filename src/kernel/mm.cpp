@@ -309,6 +309,30 @@ KERNEL_EXPORT(23, ExQueryPoolBlockSize);
 // ---------------------------------------------------------------------------
 // Reboot: everything the game allocated goes, contiguous memory starts empty.
 // ---------------------------------------------------------------------------
+MemoryUsage QueryMemoryUsage()
+{
+    MemoryUsage usage;
+    {
+        std::lock_guard<std::mutex> lock(g_ContigLock);
+        usage.contiguousSize = g_ContigSize;
+        for (const auto& [off, size] : g_ContigUsed)
+            usage.contiguousUsed += size;
+    }
+    std::lock_guard<std::mutex> lock(g_TrackLock);
+    usage.poolBlocks = g_PoolBlocks.size();
+    for (void* base : g_VirtualBases) {
+        // The committed parts of each allocation (its regions share its allocation base).
+        auto* p = static_cast<uint8_t*>(base);
+        MEMORY_BASIC_INFORMATION info;
+        while (VirtualQuery(p, &info, sizeof(info)) && info.AllocationBase == base) {
+            if (info.State == MEM_COMMIT)
+                usage.virtualCommitted += info.RegionSize;
+            p += info.RegionSize;
+        }
+    }
+    return usage;
+}
+
 void ResetMemoryForReboot()
 {
     size_t bases = 0, blocks = 0;

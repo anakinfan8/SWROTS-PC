@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <list>
@@ -362,7 +363,8 @@ constexpr uint32_t kActivate = 0xB4;           // object vfunc, thiscall ()
 constexpr float kSpawnDistance = 120.0f; // in front of the player (a character is about 70 tall)
 
 std::list<OwnedList> g_SpawnLists; // the spawned characters' own costume lists (this boot)
-int g_Spawned = 0;
+int g_Spawned = 0;          // numbers the spawns in the log (this session)
+int g_SpawnedInLevel = 0;   // spawned in the running level
 
 uint8_t* CreateCharacter(const char* name, const std::string& costume, const std::string& skin,
     const std::string& mesh, const char* who, std::string& error)
@@ -598,6 +600,7 @@ void InstallCharacters()
     g_PlayerSpawned = false;
     g_Player = nullptr;
     g_SpawnLists.clear(); // the level's characters went with the reboot
+    g_SpawnedInLevel = 0;
     kernel::SetBeforeRelaunch(&HandChoiceToRelaunch);
     uint8_t* stub = AllocStub(16);
     std::memcpy(stub, reinterpret_cast<const void*>(uintptr_t(kSpawnPlayer)), 5);
@@ -863,7 +866,58 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
     if (!PlaceCharacter(object, m, name, error))
         return false;
     LOG_INFO("Characters: %s at %.0f %.0f %.0f", who, m[12], m[13], m[14]);
+    ++g_SpawnedInLevel;
     return true;
+}
+
+constexpr uint32_t kCharacterHealth = 0x130;
+constexpr uint32_t kCharacterMaxHealth = 0x134;
+constexpr uint32_t kCharacterPower = 0xA40;
+
+void SetPlayerMaxHealth(float health)
+{
+    if (!PlayerAlive() || health <= 0)
+        return;
+    *reinterpret_cast<float*>(g_Player + kCharacterMaxHealth) = health;
+    *reinterpret_cast<float*>(g_Player + kCharacterHealth) = health;
+}
+
+void RefillPlayerHealth()
+{
+    if (PlayerAlive())
+        *reinterpret_cast<float*>(g_Player + kCharacterHealth) = *reinterpret_cast<const float*>(g_Player + kCharacterMaxHealth);
+}
+
+PlayerInfo CurrentPlayer()
+{
+    PlayerInfo info;
+    if (!PlayerAlive())
+        return info;
+    info.valid = true;
+    const auto typeName = reinterpret_cast<const char*(__fastcall*)(uint8_t*, void*)>(
+        (*reinterpret_cast<void* const* const*>(g_Player))[3]);
+    const char* name = typeName(g_Player, nullptr);
+    info.className = name ? name : "?";
+    const uint8_t* list = *reinterpret_cast<uint8_t**>(g_Player + kCharacterVariants);
+    const int costume = *reinterpret_cast<int*>(g_Player + kCharacterCostume);
+    if (list && costume >= 0 && costume < VariantCount(list))
+        info.costume = VariantName(list, costume);
+    const float* m = reinterpret_cast<const float*>(g_Player + kCharacterTransform);
+    std::copy(m + 12, m + 15, info.position);
+    info.facing = std::atan2(m[8], m[10]) * 57.29578f; // the forward row's heading, degrees
+    // Health and its maximum (floats), as the `health` / `maxhealth` variables set them (0x150420,
+    // 0x150450); Force power as `power` does (0x150480), on the Jedi-like characters that have it.
+    info.health = *reinterpret_cast<const float*>(g_Player + kCharacterHealth);
+    info.maxHealth = *reinterpret_cast<const float*>(g_Player + kCharacterMaxHealth);
+    info.hasPower = HasSaberColor(g_Player);
+    if (info.hasPower)
+        info.power = *reinterpret_cast<const float*>(g_Player + kCharacterPower);
+    return info;
+}
+
+int SpawnedCount()
+{
+    return g_SpawnedInLevel;
 }
 
 void SetPlayerSaberColor(const float* rgb)

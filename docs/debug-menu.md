@@ -1,7 +1,7 @@
 # Debug menu and console
 
-A developer overlay for testing and modding: the game's console, playing as any character, and
-switches. Enable it in `settings.ini`:
+A developer overlay for testing and modding: the game's console, playing as and spawning any
+character, and your character's data and quick helpers. Enable it in `settings.ini`:
 
 ```ini
 [Debug]
@@ -234,12 +234,13 @@ Not everything works: the Xbox release removed a lot of the developer-only code,
 
 ## Characters tab
 
-The `player` command with lists, for picking a character without typing names.
+Two areas: **Play as** (who you are) and **Spawn** (characters you add to the mission).
+
+**Play as** is the `player` command with lists, for picking a character without typing names.
 
 - **Class**: the classes that have costumes, with a filter box; greyed out *(cut)* ones cannot be
-  played (see above). *(each level's own)* keeps each
-  level's own character. *All classes* lists every class the game registers; most of those are not
-  characters (props, weapons, effects).
+  played (see above). *(each level's own)* keeps each level's own character. *All classes* lists
+  every class the game registers; most of those are not characters (props, weapons, effects).
 - **Costume**: the picked class's costumes, numbered as in `variants`; greyed out ones were cut and
   are not on the disc, and hovering one shows its mesh. *(the usual one)* is the costume the level
   picks. Below them, the class's **texture sets**, if it has any: *(the usual one)*, *0 (plain)*,
@@ -251,19 +252,36 @@ The buttons:
 
 - **Apply** runs the `player` command for the picks (shown in grey under the buttons, so you can
   type it next time). During a mission it restarts the mission with the new character.
-- **Spawn** puts a character of the picked class, costume and texture set in front of you (`spawn`;
-  the mesh pick is not used).
 - **Back to normal** runs `player off`.
 - **Restart mission** restarts the running mission (greyed out outside a mission).
 - **Restart on apply** is `autorestart`: off, Apply only sets the character for the next level start.
-- **Saber**: the player's saber colour (`saber`), applied at once: the game's, red, green, blue,
-  purple, or any colour from the colour box.
 
 The last three lines the commands printed show under the buttons: the choice, or why it was refused.
 
-## Switches tab
+**Spawn** has its own picks: a **class** (cut classes are left out), a **costume** and, for classes
+that have them, a **skin** (texture set), then **how many** (1 to 5) and **Spawn** (`spawn`, once
+per character). The count of characters spawned in this level is shown beside it. *Side* (ally or
+enemy) is greyed out for now: a spawn fights for its class's own side.
 
-Checkboxes for the debug displays, the fps counter, god mode and AI.
+## Game tab
+
+Your character's live data and quick helpers, the game's own variables (the ones `set` changes) and
+switches, in one place.
+
+- **Player**: your class and costume, position and facing, health and maximum health, and Force
+  power (Jedi-like characters), read from your character as you play (outside a mission: none; `player`
+  in the console prints the same). **God mode**, **Refill health**, **Max health** (100 to 1000, filled
+  at once: a clone or droid has 50, a Jedi 1000; until the mission restarts), buttons setting the
+  **Force level**, **combat skill** and **Force power level** (0 to 3: they unlock moves and powers; the
+  game's variables only set them, so the current level is not shown), and **your saber** colour
+  (`saber`: the game's, red, green, blue, purple, or any colour; yours only, at once).
+- **World**: the **time scale** (slow motion below 1, with 1/4, 1/2 and 1x buttons), **AI disabled**
+  (characters stop acting), the **HUD**'s opacity (0 hides it, for clean screenshots) and the
+  **difficulty**.
+- **Camera**: the **free camera** (`freecam`); close the menu to fly.
+- **Debug displays**: the engine's own displays (fps counter, frame profiler and memory display) and
+  its fps counter, then a **memory** line: the Xbox memory the game uses (of 128 MiB the port gives
+  it), other memory it allocated, and the characters spawned in this level.
 
 ## How it works (for contributors)
 

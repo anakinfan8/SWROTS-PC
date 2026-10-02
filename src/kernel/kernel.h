@@ -92,6 +92,16 @@ void ResetThreadsForReboot();
 void ResetFileSystemForReboot();
 void ResetMemoryForReboot();
 
+// What the game has allocated: the Xbox's contiguous memory in use (and its size), the virtual memory
+// it committed outside it, and its pool blocks. Any thread.
+struct MemoryUsage {
+    uint64_t contiguousUsed = 0;
+    uint64_t contiguousSize = 0;
+    uint64_t virtualCommitted = 0;
+    size_t poolBlocks = 0;
+};
+MemoryUsage QueryMemoryUsage();
+
 // --- File system (file.cpp) ------------------------------------------------
 void FileSystemInit(const Paths& paths);
 void CreateSymbolicLink(const std::string& link, const std::string& target);

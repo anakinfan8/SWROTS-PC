@@ -60,7 +60,9 @@ void Print(LineKind kind, const char* format, ...)
     va_end(args);
     AddLines(kind, text);
     if (kind == LineKind::Error)
-        LOG_WARN("Console: %s", text); // the log has what went wrong, as the console shows it
+        LOG_WARN("Console: %s", text); // the log has what the console showed, for reports
+    else
+        LOG_INFO("Console: %s", text);
 }
 
 // --- The engine's print slots (empty stubs in the Xbox build) ------------------------------------
@@ -363,6 +365,12 @@ void Player(const std::vector<std::string>& words)
 {
     if (words.size() == 1) {
         ShowPlayer();
+        const game::PlayerInfo now = game::CurrentPlayer();
+        if (now.valid)
+            Print(LineKind::Output, "  now: %s%s%s, health %.0f / %.0f%s, at %.0f %.0f %.0f", now.className.c_str(),
+                now.costume.empty() ? "" : " ", now.costume.c_str(), now.health, now.maxHealth,
+                now.hasPower ? (", Force " + std::to_string(int(now.power))).c_str() : "", now.position[0],
+                now.position[1], now.position[2]);
         return;
     }
     if (_stricmp(words[1].c_str(), "off") == 0 && words.size() == 2) {
@@ -681,6 +689,26 @@ void AddConsoleLine(LineKind kind, const char* text)
 {
     if (text)
         AddLines(kind, text);
+}
+
+bool ReadGameVariable(const char* name, std::string& value)
+{
+    uint8_t* console = Console();
+    uint8_t* var = console ? FindVariable(console + game::kConsoleRegistry, name) : nullptr;
+    char text[128];
+    if (!var || !SafeValue(var, text, sizeof(text)))
+        return false;
+    value = text;
+    return true;
+}
+
+bool WriteGameVariable(const char* name, const std::string& value)
+{
+    uint8_t* console = Console();
+    if (!console || !FindVariable(console + game::kConsoleRegistry, name))
+        return false;
+    SetVariable(console + game::kConsoleRegistry, name, value.c_str());
+    return true;
 }
 
 void QueueConsoleCommand(const std::string& line)

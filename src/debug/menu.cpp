@@ -15,8 +15,10 @@
 #include "core/log.h"
 #include "debug/console.h"
 #include "game/characters.h"
+#include "game/freecam.h"
 #include "game/game.h"
 #include "imgui.h"
+#include "kernel/kernel.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -192,21 +194,6 @@ void ConsoleTab()
     }
 }
 
-// --- Switches tab ------------------------------------------------------------------------------
-
-void SwitchesTab()
-{
-    ImGui::SeparatorText("Debug displays");
-    OptionCheckbox("Show debug displays", game::kOptionsHideDebugDisplays, true,
-        "Lets the engine draw its debug displays (options +0xD7 cleared).\nSame as [Debug] DebugDisplays=1.");
-    OptionCheckbox("FPS counter (fps)", game::kOptionsFps, false, "Needs the debug displays.");
-    ImGui::SeparatorText("Gameplay");
-    OptionCheckbox("God mode (god)", game::kOptionsGod, false, "The player takes no damage.");
-    OptionCheckbox("AI disabled (aiDisabled)", game::kOptionsAiDisabled, false, "Characters stop acting.");
-    if (!Options())
-        ImGui::TextDisabled("The engine's options do not exist yet.");
-}
-
 // --- Characters tab ----------------------------------------------------------------------------
 // Picks a class, a costume and a mesh, and applies them as one `player` command (shown in the
 // console like a typed one).
@@ -252,6 +239,100 @@ std::string PlayerCommand(const CharacterPicks& picks)
     return line;
 }
 
+// The Characters tab's Spawn area: its own picks (class, costume, texture set), how many, then Spawn.
+struct SpawnPicks {
+    std::string className;
+    std::string costume; // empty: the usual one
+    std::string skin;    // empty: the usual one
+    int count = 1;
+};
+SpawnPicks g_SpawnPicks;
+
+void SpawnArea()
+{
+    SpawnPicks& picks = g_SpawnPicks;
+    const float width = ImGui::GetContentRegionAvail().x / 4.0f;
+
+    ImGui::SetNextItemWidth(width);
+    if (ImGui::BeginCombo("Class##spawn", picks.className.empty() ? "(pick one)" : picks.className.c_str(),
+            ImGuiComboFlags_HeightLarge)) {
+        for (size_t c = 0; c < g_Classes.size(); ++c) {
+            if (!g_ClassBodies[c])
+                continue; // cut from the game
+            if (ImGui::Selectable(g_Classes[c].c_str(), g_Classes[c] == picks.className) && picks.className != g_Classes[c]) {
+                picks.className = g_Classes[c];
+                picks.costume.clear();
+                picks.skin.clear();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    static std::string variantsOf;
+    static std::vector<game::Variant> variants;
+    if (variantsOf != picks.className) {
+        variantsOf = picks.className;
+        variants = game::ClassVariants(picks.className.c_str());
+    }
+    ImGui::SetNextItemWidth(width);
+    if (ImGui::BeginCombo("Costume##spawn", picks.costume.empty() ? "(the usual one)" : picks.costume.c_str(),
+            ImGuiComboFlags_HeightLarge)) {
+        if (ImGui::Selectable("(the usual one)", picks.costume.empty()))
+            picks.costume.clear();
+        for (const game::Variant& v : variants) {
+            if (!v.onDisc)
+                continue;
+            if (ImGui::Selectable(v.name, picks.costume == v.name))
+                picks.costume = v.name;
+        }
+        ImGui::EndCombo();
+    }
+    const std::vector<std::string> sets = game::ClassTextureSets(picks.className.c_str());
+    if (!sets.empty()) {
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(width * 0.7f);
+        if (ImGui::BeginCombo("Skin##spawn", picks.skin.empty() ? "(usual)" : picks.skin.c_str())) {
+            if (ImGui::Selectable("(usual)", picks.skin.empty()))
+                picks.skin.clear();
+            for (const std::string& set : sets)
+                if (ImGui::Selectable(set.c_str(), picks.skin == set))
+                    picks.skin = set;
+            ImGui::EndCombo();
+        }
+    }
+
+    ImGui::SetNextItemWidth(width * 0.6f);
+    ImGui::SliderInt("How many##spawn", &picks.count, 1, 5);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(); // not yet: needs where a character keeps its team
+    static int side = 0;
+    ImGui::SetNextItemWidth(width * 0.8f);
+    ImGui::Combo("Side##spawn", &side, "its class's own\0ally\0enemy\0");
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Coming: a spawn fights for its class's own side for now (clones and droids\n"
+                          "against Jedi, Jedi against clones; a hero as AI is your opponent).");
+    ImGui::SameLine();
+    std::string spawn = "spawn " + picks.className;
+    if (!picks.costume.empty())
+        spawn += " " + picks.costume;
+    if (!picks.skin.empty())
+        spawn += " skin " + picks.skin;
+    const bool canSpawn = !picks.className.empty() && game::PlayerInLevel();
+    if (!canSpawn)
+        ImGui::BeginDisabled();
+    if (ImGui::Button("Spawn"))
+        for (int i = 0; i < picks.count; ++i)
+            Submit(spawn);
+    if (!canSpawn)
+        ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Characters in front of you (spawn), loaded from another level if need be. They\n"
+                          "stay until the mission restarts. Needs a class and a running mission.");
+    ImGui::SameLine();
+    ImGui::TextDisabled("%d spawned in this level", game::SpawnedCount());
+}
+
 void CharactersTab()
 {
     CharacterPicks& picks = g_Picks;
@@ -275,7 +356,8 @@ void CharactersTab()
     if (g_Meshes.empty())
         g_Meshes = game::CharacterMeshes("");
 
-    // Now playing, and what Apply would make of the picks.
+    // Play as: who the player is, from the next start (or at once, restarting the mission).
+    ImGui::SeparatorText("Play as");
     const char* current = game::PlayerClass();
     const std::string currentCostume = game::PlayerVariantChoice(), currentMesh = game::PlayerMesh(),
         currentSkin = game::PlayerSkin();
@@ -285,7 +367,8 @@ void CharactersTab()
         currentMesh.empty() ? "" : ", mesh ", currentMesh.c_str());
 
     UpdateLog();
-    const float buttonsHeight = ImGui::GetFrameHeightWithSpacing() * 3.3f + ImGui::GetTextLineHeightWithSpacing() * 3;
+    // Below the lists: the buttons, the command, the last printed lines, then the Spawn area.
+    const float buttonsHeight = ImGui::GetFrameHeightWithSpacing() * 5.6f + ImGui::GetTextLineHeightWithSpacing() * 5;
     if (ImGui::BeginTable("characters", 3, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable,
             ImVec2(0, -buttonsHeight))) {
         ImGui::TableSetupColumn("Class");
@@ -394,58 +477,11 @@ void CharactersTab()
         ImGui::EndTable();
     }
 
-    // The player's saber colour: live, no restart (the `saber` command).
-    {
-        float rgb[3] = { 0, 0, 1 };
-        const bool own = game::PlayerSaberColor(rgb);
-        ImGui::TextUnformatted("Saber:");
-        ImGui::SameLine();
-        if (ImGui::RadioButton("game's", !own))
-            Submit("saber off");
-        static const struct { const char* name; float rgb[3]; } kColors[] = {
-            { "red", { 1, 0, 0 } }, { "green", { 0, 1, 0 } }, { "blue", { 0, 0, 1 } }, { "purple", { 1, 0, 1 } } };
-        for (const auto& c : kColors) {
-            ImGui::SameLine();
-            const bool on = own && rgb[0] == c.rgb[0] && rgb[1] == c.rgb[1] && rgb[2] == c.rgb[2];
-            if (ImGui::RadioButton(c.name, on))
-                Submit(std::string("saber ") + c.name);
-        }
-        ImGui::SameLine();
-        static float custom[3] = { 1.0f, 0.5f, 0.0f };
-        ImGui::ColorEdit3("##sabercolor", custom, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel);
-        if (ImGui::IsItemDeactivatedAfterEdit()) { // applied once picked, not at every drag
-            char line[64];
-            snprintf(line, sizeof(line), "saber %d %d %d", int(custom[0] * 255 + 0.5f), int(custom[1] * 255 + 0.5f),
-                int(custom[2] * 255 + 0.5f));
-            Submit(line);
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Any colour for the player's saber only. Red, green, blue and purple are the\n"
-                              "game's own tuned colours; other characters keep theirs.");
-    }
-
     const std::string command = PlayerCommand(picks);
     if (ImGui::Button("Apply"))
         Submit(command);
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Play as the picks (player).");
-    ImGui::SameLine();
-    // The same picks as a character in front of the player (spawn): a class is needed.
-    std::string spawn = "spawn " + picks.className;
-    if (!picks.costume.empty())
-        spawn += " " + picks.costume;
-    if (!picks.skin.empty())
-        spawn += " skin " + picks.skin;
-    const bool canSpawn = !picks.className.empty() && game::PlayerInLevel();
-    if (!canSpawn)
-        ImGui::BeginDisabled();
-    if (ImGui::Button("Spawn"))
-        Submit(spawn);
-    if (!canSpawn)
-        ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("A character of the picked class, costume and texture set (not body), in front of\n"
-                          "you (spawn). It fights for its class's side. Needs a class and a running mission.");
     ImGui::SameLine();
     if (ImGui::Button("Back to normal")) {
         picks = CharacterPicks();
@@ -473,6 +509,201 @@ void CharactersTab()
         ImGui::TextUnformatted(g_Log[i].text.c_str());
         ImGui::PopStyleColor();
     }
+    ImGui::SeparatorText("Spawn");
+    SpawnArea();
+}
+
+// --- Game tab ---------------------------------------------------------------------------------
+// The player's live data and trainer-style helpers, through the game's own variables (the ones `set`
+// changes) and option bytes.
+
+std::string Variable(const char* name)
+{
+    std::string value;
+    return ReadGameVariable(name, value) ? value : std::string();
+}
+
+// A slider over an integer game variable; written when changed.
+void VariableSliderInt(const char* label, const char* name, int min, int max, const char* tooltip)
+{
+    const std::string text = Variable(name);
+    if (text.empty()) {
+        ImGui::BeginDisabled();
+        int dummy = 0;
+        ImGui::SliderInt(label, &dummy, min, max, "-");
+        ImGui::EndDisabled();
+        return;
+    }
+    int value = atoi(text.c_str());
+    if (ImGui::SliderInt(label, &value, min, max))
+        WriteGameVariable(name, std::to_string(value));
+    if (tooltip && ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", tooltip);
+}
+
+// A slider over a decimal game variable.
+void VariableSliderFloat(const char* label, const char* name, float min, float max, const char* format,
+    const char* tooltip)
+{
+    const std::string text = Variable(name);
+    if (text.empty()) {
+        ImGui::BeginDisabled();
+        float dummy = 0;
+        ImGui::SliderFloat(label, &dummy, min, max, "-");
+        ImGui::EndDisabled();
+        return;
+    }
+    float value = float(atof(text.c_str()));
+    if (ImGui::SliderFloat(label, &value, min, max, format)) {
+        char out[32];
+        snprintf(out, sizeof(out), "%.3f", value);
+        WriteGameVariable(name, out);
+    }
+    if (tooltip && ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", tooltip);
+}
+
+// Buttons setting an integer game variable to 0-3.
+void LevelButtons(const char* label, const char* name, const char* tooltip)
+{
+    ImGui::TextUnformatted(label);
+    if (tooltip && ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", tooltip);
+    for (int level = 0; level <= 3; ++level) {
+        ImGui::SameLine();
+        char button[32];
+        snprintf(button, sizeof(button), "%d##%s", level, name);
+        if (ImGui::SmallButton(button))
+            WriteGameVariable(name, std::to_string(level));
+    }
+}
+
+// The player's saber colour: live, no restart (the `saber` command).
+void SaberRow()
+{
+    float rgb[3] = { 0, 0, 1 };
+    const bool own = game::PlayerSaberColor(rgb);
+    ImGui::TextUnformatted("Your saber:");
+    ImGui::SameLine();
+    if (ImGui::RadioButton("game's", !own))
+        Submit("saber off");
+    static const struct { const char* name; float rgb[3]; } kColors[] = {
+        { "red", { 1, 0, 0 } }, { "green", { 0, 1, 0 } }, { "blue", { 0, 0, 1 } }, { "purple", { 1, 0, 1 } } };
+    for (const auto& c : kColors) {
+        ImGui::SameLine();
+        const bool on = own && rgb[0] == c.rgb[0] && rgb[1] == c.rgb[1] && rgb[2] == c.rgb[2];
+        if (ImGui::RadioButton(c.name, on))
+            Submit(std::string("saber ") + c.name);
+    }
+    ImGui::SameLine();
+    static float custom[3] = { 1.0f, 0.5f, 0.0f };
+    ImGui::ColorEdit3("##sabercolor", custom, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel);
+    if (ImGui::IsItemDeactivatedAfterEdit()) { // applied once picked, not at every drag
+        char line[64];
+        snprintf(line, sizeof(line), "saber %d %d %d", int(custom[0] * 255 + 0.5f), int(custom[1] * 255 + 0.5f),
+            int(custom[2] * 255 + 0.5f));
+        Submit(line);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Any colour for your saber only, at once (saber). Red, green, blue and purple are\n"
+                          "the game's own tuned colours; other characters keep theirs, and power-ups no\n"
+                          "longer change yours. Jedi-like characters only.");
+}
+
+void GameTab()
+{
+    UpdateLog();
+    // Player: what it is and where, and its numbers.
+    ImGui::SeparatorText("Player");
+    const game::PlayerInfo player = game::CurrentPlayer();
+    if (player.valid) {
+        ImGui::Text("%s%s%s", player.className.c_str(), player.costume.empty() ? "" : ", costume ",
+            player.costume.c_str());
+        ImGui::Text("Position %.0f %.0f %.0f   facing %.0f degrees", player.position[0], player.position[1],
+            player.position[2], player.facing);
+        if (player.hasPower)
+            ImGui::Text("Health %.0f / %.0f   Force power %.0f", player.health, player.maxHealth, player.power);
+        else
+            ImGui::Text("Health %.0f / %.0f", player.health, player.maxHealth);
+    } else {
+        ImGui::TextDisabled("No mission is running.");
+    }
+    OptionCheckbox("God mode (god)", game::kOptionsGod, false, "The player takes no damage.");
+    ImGui::SameLine();
+    if (!player.valid)
+        ImGui::BeginDisabled();
+    if (ImGui::Button("Refill health"))
+        game::RefillPlayerHealth();
+    ImGui::SameLine();
+    ImGui::TextUnformatted("Max health:");
+    for (const int health : { 100, 250, 500, 1000 }) {
+        ImGui::SameLine();
+        char label[16];
+        snprintf(label, sizeof(label), "%d", health);
+        if (ImGui::SmallButton(label))
+            game::SetPlayerMaxHealth(float(health));
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Sets your maximum health and fills it: a clone or droid has only a few hits'\n"
+                          "worth. Until the mission restarts.");
+    if (!player.valid)
+        ImGui::EndDisabled();
+    // The game's level variables only set (reading them gives what was last set, not the player's):
+    // buttons, not sliders that would show a wrong current value.
+    LevelButtons("Force level (forcelevel)", "forcelevel", "Unlocks Force powers by level.");
+    LevelButtons("Combat skill (combatskilllevel)", "combatskilllevel", "Unlocks combat moves by level.");
+    LevelButtons("Force power level (forcepowerlevel)", "forcepowerlevel", nullptr);
+    SaberRow();
+
+    // World: time, AI, HUD, difficulty.
+    ImGui::SeparatorText("World");
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
+    VariableSliderFloat("Time scale (timeScale)", "timeScale", 0.05f, 2.0f, "%.2fx", "Slow motion below 1.");
+    for (const float preset : { 0.25f, 0.5f, 1.0f }) {
+        ImGui::SameLine();
+        char label[16];
+        snprintf(label, sizeof(label), "%gx", preset);
+        if (ImGui::SmallButton(label)) {
+            char out[16];
+            snprintf(out, sizeof(out), "%.2f", preset);
+            WriteGameVariable("timeScale", out);
+        }
+    }
+    OptionCheckbox("AI disabled (aiDisabled)", game::kOptionsAiDisabled, false, "Characters stop acting.");
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
+    VariableSliderFloat("HUD (hud)", "hud", 0.0f, 1.0f, "%.2f", "The HUD's opacity: 0 hides it, for clean shots.");
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
+    VariableSliderInt("Difficulty (difficultyLevel)", "difficultyLevel", 0, 3, "The AI's difficulty level.");
+
+    // Camera.
+    ImGui::SeparatorText("Camera");
+    bool flying = game::FreeCameraOn();
+    if (ImGui::Checkbox("Free camera (freecam)", &flying))
+        Submit(flying ? "freecam on" : "freecam off");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Close this menu to fly: mouse / right stick look, W A S D / left stick move,\n"
+                          "E Q / RB LB up and down, Shift / RT faster, Alt / LT slower, wheel / D-pad speed.");
+
+    // Debug displays and memory.
+    ImGui::SeparatorText("Debug displays");
+    OptionCheckbox("Show debug displays", game::kOptionsHideDebugDisplays, true,
+        "Lets the engine draw its debug displays (options +0xD7 cleared): its fps counter, frame\n"
+        "profiler and memory display. Same as [Debug] DebugDisplays=1.");
+    OptionCheckbox("FPS counter (fps)", game::kOptionsFps, false, "Needs the debug displays.");
+    static ULONGLONG nextMemory = 0;
+    static kernel::MemoryUsage memory;
+    if (GetTickCount64() >= nextMemory) { // a few times a second is plenty
+        memory = kernel::QueryMemoryUsage();
+        nextMemory = GetTickCount64() + 500;
+    }
+    ImGui::Text("Memory: Xbox %.1f / %.0f MiB, other %.1f MiB, %zu pool blocks   Spawned: %d",
+        memory.contiguousUsed / 1048576.0, memory.contiguousSize / 1048576.0, memory.virtualCommitted / 1048576.0,
+        memory.poolBlocks, game::SpawnedCount());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("What the game has allocated: the Xbox's contiguous memory (textures, buffers,\n"
+                          "the level), other memory it committed, and the characters spawned in this level.");
+    if (!Options())
+        ImGui::TextDisabled("The engine's options do not exist yet.");
 }
 
 // Square corners, in the colours of the Slayer engine's own debug windows (Indiana Jones and
@@ -564,8 +795,8 @@ void BuildMenu()
                 CharactersTab();
                 ImGui::EndTabItem();
             }
-            if (ImGui::BeginTabItem("Switches")) {
-                SwitchesTab();
+            if (ImGui::BeginTabItem("Game")) {
+                GameTab();
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();

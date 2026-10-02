@@ -25,6 +25,12 @@ void InstallConsoleHooks();
 // Adds a line to the log (any thread).
 void AddConsoleLine(LineKind kind, const char* text);
 
+// A game variable's value as the engine formats it ("true", "0.5", "100"), or false when there is no
+// console yet or no such variable (or it cannot be read now). Game thread (the menu's frame).
+bool ReadGameVariable(const char* name, std::string& value);
+// Sets a game variable, as `set` does. Game thread.
+bool WriteGameVariable(const char* name, const std::string& value);
+
 // Queues a command line (any thread); it runs on the game thread at the next frame.
 void QueueConsoleCommand(const std::string& line);
 
