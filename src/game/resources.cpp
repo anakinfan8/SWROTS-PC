@@ -374,9 +374,26 @@ const PakIndex::Entry* FindElsewhere(const PakIndex* level, Find find, const Pak
     return nullptr;
 }
 
+// Stand-ins: a resource no PAK has, served as another (lower case, relative, with extension). An
+// animation a character requires that was never made takes a close relative's place (see
+// StandInAnimation), under its own name: the engine finds animations by name.
+std::mutex g_AliasLock;
+std::unordered_map<std::string, std::string> g_Aliases;
+
+std::string AliasOf(const std::string& wanted)
+{
+    std::lock_guard<std::mutex> lock(g_AliasLock);
+    const auto it = g_Aliases.find(wanted);
+    return it != g_Aliases.end() ? it->second : std::string();
+}
+
 const PakIndex::Entry* FindElsewhere(const PakIndex* level, const std::string& wanted, const PakIndex*& owner)
 {
-    return FindElsewhere(level, [&](const PakIndex* index) { return index->FindWithData(wanted); }, owner);
+    if (const PakIndex::Entry* e = FindElsewhere(level, [&](const PakIndex* index) { return index->FindWithData(wanted); }, owner))
+        return e;
+    const std::string alias = AliasOf(wanted);
+    return alias.empty() ? nullptr
+                         : FindElsewhere(nullptr, [&](const PakIndex* index) { return index->FindWithData(alias); }, owner);
 }
 
 // Loads a resource the level's PAK stream does not have from another copy.
@@ -924,6 +941,11 @@ bool DeclareFromDisc(uint8_t* scene, const EnginePath* path, int typeId, const P
     const PakIndex* owner = nullptr;
     const PakIndex::Entry* entry = FindElsewhere(nullptr,
         [&](const PakIndex* index) { return index->FindStemWithData(stem, uint32_t(typeId)); }, owner);
+    if (!entry && typeId == kAnimationType) {
+        const std::string alias = AliasOf(stem + ".bnm");
+        if (!alias.empty())
+            entry = FindElsewhere(nullptr, [&](const PakIndex* index) { return index->FindWithData(alias); }, owner);
+    }
     if (!entry) {
         std::string name = full + 3;
         for (char& c : name)
@@ -1148,6 +1170,24 @@ bool __fastcall AnimationLookupHook(void* self, void* edx, void* script, void* c
     return result;
 }
 
+// An animation file name's stand-in, for one never made: a grapple move against one opponent,
+// <attacker>_<move>_<opponent>gr|gb_partN (anakin_atk_sse5_jdbrutegr_part2: Anakin's fifth combo's
+// finish on a Jedi brute, which the story never pairs but an unlocked profile does), takes the same
+// move's version against a Jedi (anakin_atk_sse5_jedigr_part2). Empty when there is no rule.
+std::string StandInAnimation(const std::string& file)
+{
+    for (const char* side : { "gr_part", "gb_part" }) {
+        const size_t at = file.find(side);
+        if (at == std::string::npos)
+            continue;
+        const size_t start = file.rfind('_', at);
+        if (start == std::string::npos || file.compare(start + 1, at - start - 1, "jedi") == 0)
+            return std::string();
+        return file.substr(0, start + 1) + "jedi" + file.substr(at);
+    }
+    return std::string();
+}
+
 bool AnimationLookupResolved(void* self, void* edx, void* script, void* classInfo, void* arg3, EngineArray* found,
     EngineArray* missing, int flag)
 {
@@ -1167,8 +1207,27 @@ bool AnimationLookupResolved(void* self, void* edx, void* script, void* classInf
         const PakIndex* owner = nullptr;
         const PakIndex::Entry* entry = FindElsewhere(g_LevelIndex,
             [&](const PakIndex* index) { return index->FindFileWithData(file, kAnimationType); }, owner);
-        if (entry && LoadUndeclared(g_LevelScene, entry->name, *entry))
+        if (entry && LoadUndeclared(g_LevelScene, entry->name, *entry)) {
             ++resolved;
+            continue;
+        }
+        if (entry)
+            continue;
+        // Found nowhere: a stand-in, declared under the wanted name in the stand-in's folder.
+        const std::string standIn = StandInAnimation(file);
+        const PakIndex::Entry* standInEntry = standIn.empty() ? nullptr : FindElsewhere(g_LevelIndex,
+            [&](const PakIndex* index) { return index->FindFileWithData(standIn, kAnimationType); }, owner);
+        if (!standInEntry)
+            continue;
+        const std::string folder = standInEntry->name.substr(0, standInEntry->name.rfind('\\') + 1);
+        {
+            std::lock_guard<std::mutex> lock(g_AliasLock);
+            g_Aliases[folder + file] = standInEntry->name;
+        }
+        if (LoadUndeclared(g_LevelScene, folder + file, *standInEntry)) {
+            LOG_INFO("Declare: %s, never made, stands in as %s", (folder + file).c_str(), standInEntry->name.c_str());
+            ++resolved;
+        }
     }
     if (resolved == 0)
         return result;

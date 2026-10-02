@@ -102,6 +102,11 @@ initialize, the log names what is missing, e.g.
   e.g. the 501st clone markings) names textures only some levels have; the port declares them from
   the levels that do.
 
+- **Animations never made get a stand-in.** A character can require an animation no PAK has: a Jedi
+  brute needs Anakin's finish of his fifth combo on a brute (`anakin_atk_sse5_jdbrutegr_part2`) when
+  Anakin is around and that combo is unlocked, which the story never pairs. A grapple move against one
+  kind of opponent takes the same move's version against a Jedi instead, under the missing name
+  (`Declare: ... never made, stands in as ...` in the log); without it the character is not created.
 - **What is pulled in stays for the level.** A level keeps its own resources loaded; one the port
   brings in from another level is held the same way (the port keeps a reference of its own), so a
   spawned character's model is not freed when the last one wearing it dies (the next one would crash).
