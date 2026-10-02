@@ -48,6 +48,11 @@ std::vector<std::string> LooseResourceNames(const std::string& lowerPrefix);
 // resource is declared before asking for it. False when it was declared already or is not made.
 bool DeclareGeneratedResource(const std::string& lowerName, int typeId);
 
+// Declares a resource another level's PAK has (relative, lower case, e.g.
+// "meshes\\chars\\clonetrooper\\hordetrooper_var01.stx") in the running level, so the
+// game loads it when asked for. False when the level already has it or no PAK does.
+bool DeclareDiscResource(const std::string& lowerName);
+
 // Declares and loads a generated resource in the current level now, for engine code that only
 // finds resources already loaded (a menu's pictures, by name). False when it did not load.
 bool LoadGeneratedResource(const std::string& lowerName, int typeId);

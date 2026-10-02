@@ -27,10 +27,10 @@ Up/Down recall earlier commands.
 | `<variable>=<value>` | the same, in the `vars_xbox.cfg` form |
 | `toggle <variable>` | flips an on/off variable |
 | `duelist [<slot> <class>]` | lists the versus select screen's fighters, or puts a character class in a slot (see below) |
-| `player [<class>\|- [<costume>] [mesh <mesh>\|off]\|off]` | plays as another character, costume or mesh (see below); `-` is each level's own class |
+| `player [<class>\|- [<costume>] [skin <set>] [mesh <mesh>\|off]\|off]` | plays as another character, costume or mesh (see below); `-` is each level's own class |
 | `restart` | restarts the running mission (as the pause menu's Restart Mission does) |
 | `autorestart [on\|off]` | whether a `player` change restarts the running mission at once (on by default) |
-| `variants <class>` | lists a character class's costumes |
+| `variants <class>` | lists a character class's costumes and texture sets |
 | `meshes [text]` | lists the character meshes on the disc (those containing the text) |
 | `unlockprofile` | the game's developer cheat: unlocks everything in the signed-in profile (story, fighters, arenas, bonus missions, concept art); the game saves it with the profile, so back up `saves\` first to keep your progress |
 | `clear` | empties the console (also the Clear button) |
@@ -90,6 +90,13 @@ either, or by a part of its name that no other has (the shortest name wins: `due
 not `Anakin_NPC_Duel`). Some costumes the game lists were cut and their models are not on the disc
 (marked in the list); those fall back to the usual costume.
 
+Some classes also have **texture sets**, which the levels pick per character ("Starting texture
+set"): the clone trooper's `_var01` is the 501st's blue markings of the Jedi Temple levels, where
+the plain textures are the 212th's orange of Utapau. `player ICloneTrooper horde skin 1` (or
+`skin var01`) is a 501st horde trooper in any level, `skin 0` the plain textures; `variants <class>`
+lists a class's sets. A set's textures come from the levels that have them; a texture the set does
+not change keeps its plain version.
+
 `mesh <mesh>` dresses the player in any character mesh instead, keeping the class's moves:
 `player IObiwan mesh anakinduel` is Obi-Wan in Anakin's duel outfit, and `player mesh obi` keeps each
 level's own character but in Obi-Wan's mesh. `meshes` lists them (`meshes obi` those containing
@@ -115,7 +122,7 @@ Not everything works: the Xbox release removed a lot of the developer-only code,
 
 Three lists: **Class** (the classes that have costumes; *All classes* shows every class the game
 registers, most of them not characters), **Costume** (the picked class's costumes; greyed out ones
-were cut and are not on the disc) and **Mesh** (every character mesh on the disc), each with a
+were cut and are not on the disc; below them its texture sets, if any) and **Mesh** (every character mesh on the disc), each with a
 filter box. *(each level's own)*, *(the usual one)* and *(the costume's own)* keep the game's choice.
 **Apply** runs the matching `player` command, **Back to normal** runs `player off`, **Restart
 mission** restarts the running mission, and *Restart on apply* is `autorestart`.

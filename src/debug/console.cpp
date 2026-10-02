@@ -232,7 +232,7 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  toggle <variable>        (on/off variables)");
     Print(LineKind::Output, "  listvars [text]          all variables, or those whose name contains text");
     Print(LineKind::Output, "  duelist [<slot> <class>] versus select slots, or put a class in one");
-    Print(LineKind::Output, "  player [<class>|- [<costume>] [mesh <mesh>|off]|off]");
+    Print(LineKind::Output, "  player [<class>|- [<costume>] [skin <set>] [mesh <mesh>|off]|off]");
     Print(LineKind::Output, "                           play as a character, costume or mesh (- = the level's own class)");
     Print(LineKind::Output, "  restart                  restart the mission");
     Print(LineKind::Output, "  autorestart [on|off]     whether player changes restart the mission at once");
@@ -320,13 +320,14 @@ void Duelist(const std::vector<std::string>& words)
 void ShowPlayer()
 {
     const char* current = game::PlayerClass();
-    const std::string variant = game::PlayerVariantChoice(), mesh = game::PlayerMesh();
+    const std::string variant = game::PlayerVariantChoice(), mesh = game::PlayerMesh(), skin = game::PlayerSkin();
     if (!current && variant.empty() && mesh.empty()) {
         Print(LineKind::Output, "  player: each level's own");
         return;
     }
-    Print(LineKind::Output, "  player: %s%s%s%s%s", current ? current : "the level's own class",
-        variant.empty() ? "" : ", costume ", variant.c_str(), mesh.empty() ? "" : ", mesh ", mesh.c_str());
+    Print(LineKind::Output, "  player: %s%s%s%s%s%s%s", current ? current : "the level's own class",
+        variant.empty() ? "" : ", costume ", variant.c_str(), skin.empty() ? "" : ", texture set ", skin.c_str(),
+        mesh.empty() ? "" : ", mesh ", mesh.c_str());
 }
 
 void Restart()
@@ -351,7 +352,7 @@ void PlayerChanged()
         Print(LineKind::Output, "  (from the next level start)");
 }
 
-// player [<class>|- [<costume>] [mesh <mesh>|off] | mesh <mesh>|off | off]
+// player [<class>|- [<costume>] [skin <set>] [mesh <mesh>|off] | mesh <mesh>|off | off]
 void Player(const std::vector<std::string>& words)
 {
     if (words.size() == 1) {
@@ -364,11 +365,17 @@ void Player(const std::vector<std::string>& words)
         return;
     }
     // The mesh, from "mesh <mesh>" anywhere after the class.
-    std::string mesh;
+    std::string mesh, skin;
     bool meshGiven = false;
     std::vector<std::string> rest;
     for (size_t i = 1; i < words.size(); ++i) {
-        if (_stricmp(words[i].c_str(), "mesh") == 0) {
+        if (_stricmp(words[i].c_str(), "skin") == 0) {
+            if (i + 1 >= words.size()) {
+                Print(LineKind::Error, "skin <set>: a texture set's number or name (see variants <class>)");
+                return;
+            }
+            skin = words[++i];
+        } else if (_stricmp(words[i].c_str(), "mesh") == 0) {
             if (i + 1 >= words.size()) {
                 Print(LineKind::Error, "mesh <mesh>: a mesh name (see meshes), or off");
                 return;
@@ -389,8 +396,8 @@ void Player(const std::vector<std::string>& words)
     }
     if (!rest.empty() && rest[0] == "-") {
         // Each level's own class (and so its own costume).
-        if (rest.size() > 1) {
-            Print(LineKind::Error, "a costume needs a class: player <class> <costume>");
+        if (rest.size() > 1 || !skin.empty()) {
+            Print(LineKind::Error, "a costume or texture set needs a class: player <class> <costume> skin <set>");
             return;
         }
         game::SetPlayerClass(nullptr);
@@ -409,8 +416,13 @@ void Player(const std::vector<std::string>& words)
             Print(LineKind::Error, "%s has no costume '%s' (see variants %s)", name, variant.c_str(), name);
             return;
         }
+        if (!skin.empty() && game::ClassTextureSetIndex(name, skin) < 0) {
+            Print(LineKind::Error, "%s has no texture set '%s' (see variants %s)", name, skin.c_str(), name);
+            return;
+        }
         game::SetPlayerClass(name);
         game::SetPlayerVariant(variant);
+        game::SetPlayerSkin(skin);
         if (!meshGiven)
             game::SetPlayerMesh("");
     }
@@ -460,6 +472,13 @@ void Variants(const std::vector<std::string>& words)
     for (size_t i = 0; i < variants.size(); ++i)
         Print(LineKind::Output, "  %2zu  %-24s %-36s%s", i, variants[i].name, variants[i].mesh,
             variants[i].onDisc ? "" : "  (not on the disc)");
+    const std::vector<std::string> sets = game::ClassTextureSets(name);
+    if (!sets.empty()) {
+        Print(LineKind::Output, "  texture sets (player %s <costume> skin <number or name>):", name);
+        Print(LineKind::Output, "   0  (plain)");
+        for (size_t i = 0; i < sets.size(); ++i)
+            Print(LineKind::Output, "  %2zu  %s", i + 1, sets[i].c_str());
+    }
 }
 
 void Meshes(const std::vector<std::string>& words)

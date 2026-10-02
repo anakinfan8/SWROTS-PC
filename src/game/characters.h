@@ -31,6 +31,17 @@ std::string PlayerVariantChoice();
 void SetPlayerMesh(const std::string& mesh);
 std::string PlayerMesh();
 
+// The player's texture set from the next level start ("Starting texture set" in the game's level
+// data, e.g. the clone trooper's _var01): its number (0 the plain textures) or name; empty for the
+// usual one.
+void SetPlayerSkin(const std::string& skin);
+std::string PlayerSkin();
+
+// A class's texture sets (e.g. "_var01", "_var02"; the plain textures, set 0, not listed), and one by
+// number or name (with or without its "_"); -1 when it has none such.
+std::vector<std::string> ClassTextureSets(const char* className);
+int ClassTextureSetIndex(const char* className, const std::string& spec);
+
 // A character class's costumes, from the game's static lists.
 struct Variant {
     const char* name;

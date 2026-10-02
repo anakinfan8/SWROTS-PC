@@ -27,6 +27,7 @@ std::string g_PlayerClassName;
 const char* g_PlayerClass = nullptr;
 std::string g_PlayerVariant; // a costume: its name, a part of it or its number; empty for the usual one
 std::string g_PlayerMesh;    // a mesh under meshes/chars ("folder\\file"); empty for the costume's own
+std::string g_PlayerSkin;    // a texture set: its number or name; empty for the costume's usual one
 std::vector<uint8_t> g_PlayerVariants; // the player's own copy of its class's costumes, for a mesh
 
 std::string Lower(std::string text)
@@ -91,6 +92,63 @@ int FindVariant(const uint8_t* list, const std::string& spec)
         }
     }
     return tie ? -1 : found;
+}
+
+// A pointer to a short printable string in .rdata (where the costume tables' texts are).
+bool IsRDataText(uint32_t p)
+{
+    if (p < kRDataStart || p >= kRDataEnd)
+        return false;
+    const char* t = reinterpret_cast<const char*>(uintptr_t(p));
+    for (int i = 0; i < 80 && p + i < kRDataEnd; ++i) {
+        if (!t[i])
+            return i > 0;
+        if (t[i] < 0x20 || t[i] > 0x7E)
+            return false;
+    }
+    return false;
+}
+
+// A costume list's texture sets ("Starting texture set" in the game's level data): after the header's
+// name and four numbers, up to six texture name suffixes, e.g. the clone trooper's "_var01" and
+// "_var02". A character's +0x1EC picks one (1 the first; 0 the plain textures): when its mesh loads
+// (0x155763), each texture is looked for as <name><suffix> first (0x14F7E0), where the level has it.
+constexpr uint32_t kTextureSets = 0x14;
+constexpr int kMaxTextureSets = 6;
+constexpr uint32_t kCharacterTextureSet = 0x1EC;
+
+std::vector<const char*> TextureSets(const uint8_t* list)
+{
+    std::vector<const char*> sets;
+    for (int i = 0; list && i < kMaxTextureSets; ++i) {
+        const uint32_t p = *reinterpret_cast<const uint32_t*>(list + kTextureSets + i * 4);
+        if (!IsRDataText(p))
+            break;
+        sets.push_back(reinterpret_cast<const char*>(uintptr_t(p)));
+    }
+    return sets;
+}
+
+// A texture set by number (0 the plain textures) or name, with or without its "_" ("var01"); -1 when
+// there is none.
+int FindTextureSet(const uint8_t* list, const std::string& spec)
+{
+    const std::vector<const char*> sets = TextureSets(list);
+    if (spec.empty())
+        return -1;
+    if (std::all_of(spec.begin(), spec.end(), [](char c) { return isdigit(static_cast<unsigned char>(c)) != 0; })) {
+        const int i = atoi(spec.c_str());
+        return i <= int(sets.size()) ? i : -1;
+    }
+    const std::string want = Lower(spec[0] == '_' ? spec.substr(1) : spec);
+    if (want == "default" || want == "plain")
+        return 0;
+    for (size_t i = 0; i < sets.size(); ++i) {
+        const std::string name = Lower(sets[i][0] == '_' ? sets[i] + 1 : sets[i]);
+        if (name == want)
+            return int(i) + 1;
+    }
+    return -1;
 }
 
 // When a level starts, 0x2AB660 creates the player through kSpawnPlayer with the launch settings'
@@ -167,6 +225,29 @@ int __stdcall PlayerVariant(void* player, int variant)
     }
     if (list && chosen >= 0 && chosen < VariantCount(list))
         LOG_INFO("Characters: costume %s (%d)", VariantName(list, chosen), chosen);
+    if (!g_PlayerSkin.empty() && list) {
+        const int set = FindTextureSet(list, g_PlayerSkin);
+        if (set < 0) {
+            LOG_WARN("Characters: no texture set '%s'; the usual textures instead", g_PlayerSkin.c_str());
+        } else {
+            *reinterpret_cast<int*>(static_cast<uint8_t*>(player) + kCharacterTextureSet) = set;
+            if (set > 0) {
+                // The set's textures from wherever the disc has them: those in the costume mesh's folder
+                // ending with the suffix (e.g. meshes\chars\clonetrooper\hordetrooper_var01.stx).
+                const std::string suffix = Lower(TextureSets(list)[set - 1]) + ".stx";
+                const int slot = chosen >= 0 && chosen < VariantCount(list) ? chosen : 0;
+                const std::string mesh = Lower(VariantMesh(list, slot));
+                const std::string folder = "meshes\\chars\\" + mesh.substr(0, mesh.find('\\') + 1);
+                int declared = 0;
+                for (const std::string& name : DiscResourceNames(folder))
+                    if (name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0 &&
+                        DeclareDiscResource(name))
+                        ++declared;
+                LOG_INFO("Characters: texture set %s (%d)%s", TextureSets(list)[set - 1], set,
+                    declared ? ", textures from other levels" : "");
+            }
+        }
+    }
     return chosen;
 }
 
@@ -327,6 +408,8 @@ void InstallCharacters()
                 }
             } else if (_stricmp(words[i].c_str(), "mesh") == 0 && i + 1 < words.size()) {
                 g_PlayerMesh = words[++i]; // as given; resolved at the spawn (PlayerVariant)
+            } else if (_stricmp(words[i].c_str(), "skin") == 0 && i + 1 < words.size()) {
+                g_PlayerSkin = words[++i];
             } else {
                 g_PlayerVariant = words[i];
             }
@@ -371,18 +454,7 @@ const std::unordered_map<std::string, const uint8_t*>& VariantLists()
     if (scanned)
         return lists;
     scanned = true;
-    const auto isText = [](uint32_t p) {
-        if (p < kRDataStart || p >= kRDataEnd)
-            return false;
-        const char* t = reinterpret_cast<const char*>(uintptr_t(p));
-        for (int i = 0; i < 80 && p + i < kRDataEnd; ++i) {
-            if (!t[i])
-                return i > 0;
-            if (t[i] < 0x20 || t[i] > 0x7E)
-                return false;
-        }
-        return false;
-    };
+    const auto isText = IsRDataText;
     // A header's name, then (at +0x2C) a first record: a costume name without a backslash and its mesh
     // ("Folder\File") with one.
     for (uint32_t a = kDataStart; a + kVariantRecords + kVariantRecordSize <= kDataEnd; a += 4) {
@@ -524,12 +596,37 @@ std::string PlayerMesh()
     return g_PlayerMesh;
 }
 
+void SetPlayerSkin(const std::string& skin)
+{
+    g_PlayerSkin = skin;
+}
+
+std::string PlayerSkin()
+{
+    return g_PlayerSkin;
+}
+
+std::vector<std::string> ClassTextureSets(const char* className)
+{
+    std::vector<std::string> out;
+    for (const char* set : TextureSets(FindVariantList(className)))
+        out.push_back(set);
+    return out;
+}
+
+int ClassTextureSetIndex(const char* className, const std::string& spec)
+{
+    const uint8_t* list = FindVariantList(className);
+    return list ? FindTextureSet(list, spec) : -1;
+}
+
 bool SetPlayerClass(const char* className)
 {
     if (!className) {
         g_PlayerClass = nullptr;
         g_PlayerVariant.clear();
         g_PlayerMesh.clear();
+        g_PlayerSkin.clear();
         return true;
     }
     const char* name = RegisteredClassName(className);

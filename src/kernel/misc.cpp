@@ -303,6 +303,9 @@ KERNEL_EXPORT(328, XeUnloadSection);
 static std::wstring g_LaunchDataFile;
 static std::vector<uint8_t> g_PendingLaunchData; // from a process restart (--relaunch)
 static bool g_InProcessReboot = true;
+// The launch data of the game's last reboot into itself: what started the running mission (the game
+// does not reboot to enter one from its menus, only to leave them; the page itself then changes).
+static std::vector<uint8_t> g_MissionLaunchData;
 
 void SetInProcessReboot(bool enabled) { g_InProcessReboot = enabled; }
 
@@ -337,11 +340,13 @@ void RelaunchProcess(const void* launchData)
 void RestartMission()
 {
     LogFlush();
-    // From a thread of its own: the reboot stops every game thread, the caller's too.
+    // From a thread of its own: the reboot stops every game thread, the caller's too. Without a reboot
+    // so far (a level booted from Default_Xbox.cfg), the current page starts the same level again.
     HANDLE worker = CreateThread(nullptr, 0, [](void*) -> DWORD {
+        const void* launchData = g_MissionLaunchData.empty() ? LaunchDataPage : g_MissionLaunchData.data();
         if (g_InProcessReboot)
-            RebootInProcess(LaunchDataPage); // ends this thread; the reboot worker takes over
-        RelaunchProcess(LaunchDataPage);
+            RebootInProcess(launchData); // ends this thread; the reboot worker takes over
+        RelaunchProcess(launchData);
     }, nullptr, 0, nullptr);
     if (worker)
         CloseHandle(worker);
@@ -373,6 +378,8 @@ void XBAPI HalReturnToFirmware(ULONG Routine)
         std::string p = path;
         for (char& c : p) c = char(tolower(static_cast<unsigned char>(c)));
         if (p.find("default.xbe") != std::string::npos) {
+            const auto* page = static_cast<const uint8_t*>(LaunchDataPage);
+            g_MissionLaunchData.assign(page, page + 4096);
             LogFlush();
             if (g_InProcessReboot)
                 RebootInProcess(LaunchDataPage);

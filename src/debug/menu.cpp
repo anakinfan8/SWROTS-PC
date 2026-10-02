@@ -205,6 +205,7 @@ struct CharacterPicks {
     bool loaded = false;   // the picks were taken from the current choice
     std::string className; // empty: each level's own
     std::string costume;   // a costume name; empty: the usual one
+    std::string skin;      // a texture set's name (e.g. _var01), "0" the plain one; empty: the usual one
     std::string mesh;      // "folder\file"; empty: the costume's own
     char classFilter[64] = "";
     char meshFilter[64] = "";
@@ -234,6 +235,8 @@ std::string PlayerCommand(const CharacterPicks& picks)
     std::string line = "player " + (picks.className.empty() ? std::string("-") : picks.className);
     if (!picks.className.empty() && !picks.costume.empty())
         line += " " + picks.costume;
+    if (!picks.className.empty() && !picks.skin.empty())
+        line += " skin " + picks.skin;
     line += " mesh " + (picks.mesh.empty() ? std::string("off") : picks.mesh);
     return line;
 }
@@ -249,6 +252,7 @@ void CharactersTab()
             game::ClassVariantIndex(picks.className.c_str(), game::PlayerVariantChoice());
         const std::vector<game::Variant> variants = game::ClassVariants(picks.className.c_str());
         picks.costume = index >= 0 && index < int(variants.size()) ? variants[index].name : "";
+        picks.skin = picks.className.empty() ? "" : game::PlayerSkin();
     }
     if (g_Classes.empty() || g_ClassesAll != picks.allClasses) {
         g_Classes = game::CharacterClasses(picks.allClasses);
@@ -259,9 +263,11 @@ void CharactersTab()
 
     // Now playing, and what Apply would make of the picks.
     const char* current = game::PlayerClass();
-    const std::string currentCostume = game::PlayerVariantChoice(), currentMesh = game::PlayerMesh();
-    ImGui::Text("Now: %s%s%s%s%s", current ? current : "each level's own character",
+    const std::string currentCostume = game::PlayerVariantChoice(), currentMesh = game::PlayerMesh(),
+        currentSkin = game::PlayerSkin();
+    ImGui::Text("Now: %s%s%s%s%s%s%s", current ? current : "each level's own character",
         currentCostume.empty() ? "" : ", costume ", currentCostume.c_str(),
+        currentSkin.empty() ? "" : ", texture set ", currentSkin.c_str(),
         currentMesh.empty() ? "" : ", mesh ", currentMesh.c_str());
 
     const float buttonsHeight = ImGui::GetFrameHeightWithSpacing() * 2.2f;
@@ -285,6 +291,7 @@ void CharactersTab()
             if (ImGui::Selectable("(each level's own)", picks.className.empty())) {
                 picks.className.clear();
                 picks.costume.clear();
+                picks.skin.clear();
             }
             for (const std::string& name : g_Classes) {
                 if (!Contains(name, picks.classFilter))
@@ -293,6 +300,7 @@ void CharactersTab()
                     picks.className != name) {
                     picks.className = name;
                     picks.costume.clear();
+                    picks.skin.clear();
                 }
             }
             if (g_Classes.empty())
@@ -328,6 +336,22 @@ void CharactersTab()
                 }
                 if (variants.empty())
                     ImGui::TextDisabled("No costume list.");
+
+                // Texture sets ("Starting texture set" in the game's level data).
+                const std::vector<std::string> sets = game::ClassTextureSets(picks.className.c_str());
+                if (!sets.empty()) {
+                    ImGui::SeparatorText("Texture set");
+                    if (ImGui::Selectable("(the usual one)##skin", picks.skin.empty()))
+                        picks.skin.clear();
+                    if (ImGui::Selectable(" 0  (plain)", picks.skin == "0"))
+                        picks.skin = "0";
+                    for (size_t i = 0; i < sets.size(); ++i) {
+                        char label[64];
+                        snprintf(label, sizeof(label), "%2zu  %s", i + 1, sets[i].c_str());
+                        if (ImGui::Selectable(label, picks.skin == sets[i]))
+                            picks.skin = sets[i];
+                    }
+                }
             }
         }
         ImGui::EndChild();

@@ -1241,6 +1241,15 @@ std::vector<std::string> LooseResourceNames(const std::string& lowerPrefix)
     return names;
 }
 
+bool DeclareDiscResource(const std::string& lowerName)
+{
+    if (!g_LevelScene)
+        return false;
+    const PakIndex* owner = nullptr;
+    const PakIndex::Entry* entry = FindElsewhere(g_LevelIndex, lowerName, owner);
+    return entry && LoadUndeclared(g_LevelScene, lowerName, *entry, false);
+}
+
 bool DeclareGeneratedResource(const std::string& lowerName, int typeId)
 {
     uint8_t* scene = g_LevelScene;

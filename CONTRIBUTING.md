@@ -65,7 +65,7 @@ game plays silently, movies and sounds keeping time on the clock), `SWROTS_REBOO
 (restarts the game in-process that often, as a level change does, to test what a restart leaves
 behind; best with a level booted from `Default_Xbox.cfg`, since a restart mid-movie falls back to a new
 process), `SWROTS_DUELISTS=<slot>=<class>[,...]` (the console's `duelist` changes from the start, e.g.
-`0=IYoda`, for unattended versus tests), `SWROTS_PLAYER="<class>[ <costume>][ mesh <mesh>]"` (the
+`0=IYoda`, for unattended versus tests), `SWROTS_PLAYER="<class>[ <costume>][ skin <set>][ mesh <mesh>]"` (the
 console's `player` from the start, e.g. `IVader` or `"IAnakin duel"`; `-` for the class keeps each
 level's own, e.g. `"- mesh obi"`).
 
