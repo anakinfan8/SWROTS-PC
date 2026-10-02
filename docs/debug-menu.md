@@ -1,6 +1,7 @@
 # Debug menu and console
 
-A developer overlay for testing and modding. Enable it in `settings.ini`:
+A developer overlay for testing and modding: the game's console, playing as any character, and
+switches. Enable it in `settings.ini`:
 
 ```ini
 [Debug]
@@ -27,11 +28,11 @@ Up/Down recall earlier commands.
 | `<variable>=<value>` | the same, in the `vars_xbox.cfg` form |
 | `toggle <variable>` | flips an on/off variable |
 | `duelist [<slot> <class>]` | lists the versus select screen's fighters, or puts a character class in a slot (see below) |
-| `player [<class>\|- [<costume>] [skin <set>] [mesh <mesh>\|off]\|off]` | plays as another character, costume or mesh (see below); `-` is each level's own class |
+| `player [<class>\|- [<costume>] [skin <set>] [mesh <mesh>\|off]\|off]` | plays story levels as another character, costume, texture set or body (see below) |
 | `restart` | restarts the running mission (as the pause menu's Restart Mission does) |
 | `autorestart [on\|off]` | whether a `player` change restarts the running mission at once (on by default) |
 | `variants <class>` | lists a character class's costumes and texture sets |
-| `meshes [text]` | lists the character meshes on the disc (those containing the text) |
+| `meshes [text]` | lists the character bodies on the disc and under `mods\` (those containing the text) |
 | `unlockprofile` | the game's developer cheat: unlocks everything in the signed-in profile (story, fighters, arenas, bonus missions, concept art); the game saves it with the profile, so back up `saves\` first to keep your progress |
 | `clear` | empties the console (also the Clear button) |
 | anything else | runs through the game's console: the game's own commands |
@@ -66,48 +67,111 @@ moveset may not work as fighters.
 
 ### Playing as another character
 
-The **Characters tab** does all of this with lists: pick a class, a costume and a mesh, then Apply
-(the tab runs the matching `player` command, shown under the buttons and in the console).
+Any story level can be played as another character, in any of its costumes, texture sets or in
+another character's body. The **Characters tab** (below) does it with lists; the `player` command
+does the same from the console. The choice lasts until the game is closed, and applies to every
+level you play.
 
-`player <class>` makes you that character class in every level until the game is closed; `player off`
-goes back to each level's own character, and `player` alone shows the current choice. During a
-mission a change restarts it with the new character at once, like the pause menu's Restart Mission
-(from the mission's start, not the last checkpoint). `autorestart off` (or `[Debug] AutoRestart=0`
-in `settings.ini`) keeps the mission running instead; the change then applies from the next level
-start. For example, `player IVader` then restart
-Order 66, or `player IYoda`, `player ICloneTrooper`, `player IBattleDroid` in Mustafar. Characters
-the level does not contain are loaded from other levels' PAKs, like versus fighters. A character
-whose usual costume is not on the disc gets the first of its variants that is (the battle droid's
-`hordeBattleDroid`). The HUD shows the character's portrait when the game has one (its twelve:
-Anakin, Obi-Wan, Dooku, Grievous, Mace, Serra, Cin Drallig, Vader, old Obi-Wan, Yoda, Cody and the
-bodyguard), loaded from another level if need be; other classes, such as the clone trooper, have none.
-Missions may expect their own character (cutscenes, scripted moments).
+```
+player <class> [<costume>] [skin <set>] [mesh <mesh>|off]
+player - mesh <mesh>       each level's own character, in another body
+player off                 back to each level's own character
+player                     shows the current choice
+```
 
-A costume follows the class: `player IAnakin duel` is Anakin without robe or hood (his Mustafar
-outfit), also in Order 66, where he normally wears his cloak; `player ICloneTrooper horde` is the horde
-trooper. `variants <class>` lists a class's costumes by number and name; a costume can be given by
-either, or by a part of its name that no other has (the shortest name wins: `duel` is `Anakin_Duel`,
-not `Anakin_NPC_Duel`). Some costumes the game lists were cut and their models are not on the disc
-(marked in the list); those fall back to the usual costume.
+| Example | What you get |
+|---|---|
+| `player IVader` | Vader, in Order 66 or anywhere else |
+| `player IAnakin duel` | Anakin without robe or hood (his Mustafar outfit), also in Order 66, where he normally wears his cloak |
+| `player ICloneTrooper horde skin 1` | a 501st horde trooper (blue markings) |
+| `player IObiwan mesh anakinduel` | Obi-Wan's moves in Anakin's duel outfit |
+| `player - mesh obi` | each level's own character, in Obi-Wan's body |
+| `player IYoda` | Yoda (his blocks are his own; some other reactions borrow Anakin's) |
 
-Some classes also have **texture sets**, which the levels pick per character ("Starting texture
-set"): the clone trooper's `_var01` is the 501st's blue markings of the Jedi Temple levels, where
-the plain textures are the 212th's orange of Utapau. `player ICloneTrooper horde skin 1` (or
-`skin var01`) is a 501st horde trooper in any level, `skin 0` the plain textures; `variants <class>`
-lists a class's sets. A set's textures come from the levels that have them; a texture the set does
-not change keeps its plain version.
+**When it applies.** During a mission, a change restarts the mission at once with the new
+character, as the pause menu's Restart Mission does: from the mission's start, not your last
+checkpoint. `autorestart off` (or `[Debug] AutoRestart=0` in `settings.ini`) keeps the mission
+running instead; the change then applies from the next level start or restart (`restart`). Outside
+a mission (in the menus, or while a level loads) a change simply waits for the next level.
 
-`mesh <mesh>` dresses the player in any character mesh instead, keeping the class's moves:
-`player IObiwan mesh anakinduel` is Obi-Wan in Anakin's duel outfit, and `player mesh obi` keeps each
-level's own character but in Obi-Wan's mesh. `meshes` lists them, the character bodies only (`meshes obi` those
-containing "obi"; limbs, debris, vehicles and effects are left out, as they crash the game as a body); a mesh is named by its folder, its file or `folder\file`. A mesh made for one character has
-its skeleton's animations bound for that character; for another, the game rebuilds that binding
-(written to `cache\disc\`), and a few animations no character has (a cut part of Anakin's force jump)
-borrow a neighbouring one. `player <class> mesh off` goes back to the costume's own mesh, and
-`player - mesh <mesh>` keeps each level's own character in that mesh. A mesh of your own works too:
-put it (with its textures) under `mods\meshes\chars\<folder>\` and name it `<folder>\<file>`, or just
-`<folder>`; it appears in `meshes` and the Characters tab. Without its textures it is drawn plain
-green, and a skeleton unlike the class's (a droid's mesh on a Jedi) may look broken.
+**Classes.** A class is the character's behaviour: its moves, weapons, health and AI, e.g. `IAnakin`,
+`IObiwan`, `ICloneTrooper`, `IBattleDroid`, `IYoda`. The Characters tab lists the classes that have
+costumes; the game knows more (`player` refuses names it does not know). Characters a level does
+not contain are loaded from other levels' PAKs, like versus fighters (see
+[how loading works](modding/how-loading-works.md#what-the-port-changes)). Missions may expect their
+own character in cutscenes and scripted moments, and some classes were never made to be played:
+they may lack moves, or not respond to every control.
+
+**Costumes.** Each class has a list of costumes (the game's "Mesh Choice"); `variants <class>` lists
+them by number and name:
+
+```
+> variants IAnakin
+  IAnakin's costumes (player IAnakin <name or number>):
+   0  Anakin                   Anakin\Anakin
+   1  Anakin_Duel              AnakinDuel\AnakinDuel
+   2  Anakin_Cloak             Anakincloak\Anakincloak
+   3  Anakin_Hood_Down         AnakinHoodDown\AnakinHoodDown
+   ...
+```
+
+A costume can be given by its number, its name, or a part of its name: the shortest name containing
+it wins, so `duel` is `Anakin_Duel` rather than `Anakin_NPC_Duel`. Without one, the player wears the
+costume the level picks (Anakin's cloak in Order 66). Some costumes the game lists were cut and their
+models are not on the disc (Sidious, Emperor, Luke, Commander Cody, dirty Obi-Wan, the male padawan;
+marked in the list); those fall back to the usual costume. A class whose usual costume was cut gets
+the first one that is on the disc (the battle droid's `hordeBattleDroid`).
+
+**Texture sets (skins).** Some classes have alternative textures, which the levels pick for each
+character they place (the game's "Starting texture set"). The clone trooper's first set is the
+**501st**'s blue markings of the Jedi Temple levels; its plain textures are the 212th's orange of
+Utapau. `skin 1` (or `skin var01`) picks the first set, `skin 0` the plain textures; without `skin`
+the plain textures are used. `variants <class>` lists a class's sets. Only first sets have textures
+on the disc:
+
+| Class | Set 1 (`_var01`) textures on the disc |
+|---|---|
+| `ICloneTrooper` | horde trooper (501st), sniper (`cloneSniperNewMesh`) |
+| `IBlazeTrooper` | sky trooper |
+| `IBattleDroid` | horde battle droid |
+| `IGrappleDroid` | grapple droid |
+
+The stormtrooper, buzz droid, clone walker, flying battle droid and Commander Cody list sets too, and
+the clone and stormtrooper a second one, but no textures for them are on the disc: those look
+plain. A set's textures are loaded from whichever level has them (a 501st trooper works on Utapau).
+
+**Meshes (bodies).** `mesh <mesh>` dresses the player in any character body while keeping the class's
+moves. `meshes` lists them (`meshes obi`: those containing "obi"); a mesh is named by its folder,
+its file or `folder\file` (`obi`, `obi\obi`). Only bodies are offered: the disc's other character
+meshes (dismembered limbs, debris, vehicles, the lightning effect) crash the game as a body and are
+refused. A body made for one character has its skeleton's animations bound for that character; on
+another class the game rebuilds that binding (into `cache\disc\`, safe to delete), and the few
+animations no character has (a cut part of Anakin's force jump) borrow a neighbouring one. Bodies
+shaped like the class's look right (any human on a Jedi); others may stretch or twist (C-3PO on
+Anakin works, but moves like Anakin). `mesh off` goes back to the costume's own body.
+
+**Your own meshes.** Put a mesh with its textures under `mods\meshes\chars\<folder>\` and it appears in
+`meshes` and the Characters tab; name it `<folder>` or `<folder>\<file>`. A mesh without its textures
+is drawn plain green. See [swapping characters](modding/swapping-characters.md) for how a mesh
+names its textures.
+
+**Versus.** `player` is for story levels. In Versus it does not apply costumes, texture sets or meshes
+yet; use `duelist` (above) to choose the fighters.
+
+**If something goes wrong.**
+
+- *Nothing happens after Apply or `player`*: look at the lines the command printed (under the
+  Characters tab's buttons, or in the Console tab). An unknown class, costume or set is refused there.
+- *The game freezes or crashes on a combination*: close it; the choice is not saved, so the next start
+  is normal. A crash leaves `logs\swrots.log` with the details (and `logs\Message.log`, the game's
+  own error report). If a restart cannot stop the game, the port starts the game process again,
+  which takes longer but keeps your choice.
+- *Plain green body*: the mesh's textures are missing (your own mesh without its `.stx` files).
+- *The HUD portrait is the missing-texture pattern or another character's*: the game has portraits
+  for twelve characters only (Anakin, Obi-Wan, Dooku, Grievous, Mace, Serra, Cin Drallig, Vader, old
+  Obi-Wan, Yoda, Cody and the bodyguard); the port loads them from another level if need be.
+
+How it works, with addresses: [characters](research/characters.md).
 
 Some of the game's commands:
 
@@ -120,15 +184,27 @@ Not everything works: the Xbox release removed a lot of the developer-only code,
 
 ## Characters tab
 
-Three lists: **Class** (the classes that have costumes; *All classes* shows every class the game
-registers, most of them not characters), **Costume** (the picked class's costumes; greyed out ones
-were cut and are not on the disc; below them its texture sets, if any) and **Mesh** (every character mesh on the disc), each with a
-filter box. *(each level's own)*, *(the usual one)* and *(the costume's own)* keep the game's choice.
-**Apply** runs the matching `player` command, **Back to normal** runs `player off`, **Restart
-mission** restarts the running mission, and *Restart on apply* is `autorestart`. The last lines the commands printed show under the buttons.
+The `player` command with lists, for picking a character without typing names.
 
-`player` is for story levels: in Versus the costume, texture set and mesh do not apply yet (use
-`duelist` for the fighters).
+- **Class**: the classes that have costumes, with a filter box. *(each level's own)* keeps each
+  level's own character. *All classes* lists every class the game registers; most of those are not
+  characters (props, weapons, effects).
+- **Costume**: the picked class's costumes, numbered as in `variants`; greyed out ones were cut and
+  are not on the disc, and hovering one shows its mesh. *(the usual one)* is the costume the level
+  picks. Below them, the class's **texture sets**, if it has any: *(the usual one)*, *0 (plain)*,
+  then the sets (`_var01` is the clone trooper's 501st).
+- **Mesh**: every character body on the disc and under `mods\`, with a filter box. *(the costume's
+  own)* keeps the costume's body.
+
+The buttons:
+
+- **Apply** runs the `player` command for the picks (shown in grey under the buttons, so you can
+  type it next time). During a mission it restarts the mission with the new character.
+- **Back to normal** runs `player off`.
+- **Restart mission** restarts the running mission (greyed out outside a mission).
+- **Restart on apply** is `autorestart`: off, Apply only sets the character for the next level start.
+
+The last three lines the commands printed show under the buttons: the choice, or why it was refused.
 
 ## Switches tab
 
@@ -151,3 +227,6 @@ Checkboxes for the debug displays, the fps counter, god mode and AI.
   `{value, name, next}` nodes.
 - Commands are queued by the menu and run on the game thread after a frame is presented.
 - New port commands go in `RunPortCommand` (`src/debug/console.cpp`).
+- The character commands (`player`, `variants`, `meshes`, `restart`, `autorestart`, `duelist`) need no
+  engine console object, so they also run while it does not exist (in the menus' early life, during
+  loading). The Characters tab builds `player` commands and queues them like typed ones.

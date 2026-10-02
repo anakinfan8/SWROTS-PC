@@ -5,7 +5,8 @@
 - [Installing](install.md): setup from your disc image, the folder layout, reinstalling
 - [Settings](settings.md): `settings.ini`: window, graphics, frame rate, developer options
 - [Controls](controls.md): keyboard, mouse and controllers, `controls.ini`
-- [Debug menu](debug-menu.md): the game's own console, variables and debug displays
+- [Debug menu](debug-menu.md): the game's own console, variables and debug displays, and playing
+  as any character (class, costume, texture set, body)
 
 ## Modding
 
@@ -33,3 +34,5 @@ Notes on the game's engine, from its own executable and from related games.
 - [Indiana Jones and the Emperor's Tomb](research/indiana-jones.md): the same engine, with symbol maps
 - [The PS2 version](research/ps2-build.md): what its disc contains that the Xbox one does not
 - [The versus roster](research/versus-roster.md): how Yoda became a versus fighter, with addresses
+- [Characters](research/characters.md): classes, costume lists, texture sets (the 501st), bodies and
+  animation bindings, with addresses

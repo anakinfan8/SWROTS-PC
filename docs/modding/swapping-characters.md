@@ -1,5 +1,12 @@
 # Swapping characters
 
+To **play** as another character, in another costume or in another character's body, no files are
+needed: the debug menu's Characters tab and `player` command do it
+([playing as another character](../debug-menu.md#playing-as-another-character)), and a mesh of your
+own under `mods\meshes\chars\<folder>\` can be worn the same way. This page is about replacing a
+character's model **in the game's files**, which changes it everywhere it appears (NPCs and
+cutscenes too).
+
 A character's look comes from its mesh (`meshes\chars\<name>\<name>.msh`) and the textures the
 mesh references. Replacing the mesh a level loads for a character replaces that character's
 model. The skeleton and animations stay the character's own, so swaps between characters with a
@@ -80,5 +87,6 @@ open("mods/meshes/chars/anakinhooddown/anakinhooddown.stx", "wb").write(stx)
 The game's character classes register named skins, each with a mesh folder. The table is in the
 game executable (see [file formats](file-formats.md#character-skin-table)). For example `Anakin`
 uses `Anakin\Anakin`, `Anakin_Hood_Down` uses `AnakinHoodDown\AnakinHoodDown`, and `Palpatine`
-uses `Palpatine_grey\palpatine_grey`. Use `LogResources=1` to see which mesh a level actually
-loads.
+uses `Palpatine_grey\palpatine_grey`. The debug console's `variants <class>` lists a class's
+skins and meshes, and `meshes` every character body on the disc. Use `LogResources=1` to see which
+mesh a level actually loads.

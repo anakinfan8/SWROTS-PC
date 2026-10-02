@@ -55,17 +55,22 @@ Shader-group names follow (`palpatine_greyGeo_palpatineBodySG`). The engine requ
 
 ## Character skin table
 
-In the game executable (`.data`). Each record is 16 bytes:
+In the game executable (`.data`): one list per character class, each a 0x2C-byte header and then
+20-byte records up to one with a null name.
 
 ```c
-struct SkinRecord { const char* name; const char* meshPath; uint32_t zero; const char* code; };
+struct SkinList   { const char* className; uint32_t numbers[4]; const char* textureSets[6]; };
+struct SkinRecord { const char* name; const char* meshPath; uint32_t zero; const char* code; uint32_t zero2; };
 ```
 
-Examples: `{ "Anakin", "Anakin\\Anakin", 0, "AKN" }`,
-`{ "Palpatine", "Palpatine_grey\\palpatine_grey", 0, "PLP" }`,
-`{ "Sidious", "sidious\\sidious", 0, "SID" }`, `{ "Luke", "luke\\luke", 0, "LKE" }`.
+Examples: the `Anakin` list has `{ "Anakin", "Anakin\\Anakin", 0, "AKN", 0 }`,
+`{ "Anakin_Duel", "AnakinDuel\\AnakinDuel", ... }`; the `CloneTrooper` list has the texture sets
+`"_var01"`, `"_var02"` and `{ "hordeTrooper", "clonetrooper\\hordeTrooper", 0, "CLT", 0 }`;
+`{ "Sidious", "sidious\\sidious", ... }` and `{ "Luke", "luke\\luke", ... }` name models that are
+not on the disc. The debug console's `variants <class>` prints a class's list. The details, texture
+sets included, are in [characters](../research/characters.md).
 
-About 75 skins are registered, including characters used in only a few levels (Emperor, Luke,
-Serra, Cin Drallig). Level files (`levels\<level>.slp`) place characters as class instances
+Forty classes have lists, with about 75 skins between them, including characters used in only a
+few levels (Serra, Cin Drallig) and cut ones (Emperor, Luke). Level files (`levels\<level>.slp`) place characters as class instances
 (`IVader`, `IOldObiwan`, `IStormtrooper`) with properties such as `Name`, `Transform`, `Player?`
 and `Enemies`.

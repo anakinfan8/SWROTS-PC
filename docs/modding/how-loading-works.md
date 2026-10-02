@@ -77,7 +77,10 @@ reserved when the level starts, because the engine keeps pointers into it.
 - **Animation bindings the engine rebuilds go to `cache\disc\`.** When a character's `.ban` (which
   links its model to its animations) lacks animations the character needs in this level, the
   engine rebuilds it and writes it next to the model on the disc drive. The disc is read-only, so
-  the port writes it to `cache\disc\<same path>` and reads it from there; it is safe to delete.
+  the port writes it to `cache\disc\<same path>` and reads it from there (also when the engine
+  reads a binding straight back after rebuilding it: the rebuilt copy wins over any PAK's); it is
+  safe to delete. A body worn by another class (`player <class> mesh <mesh>`) always gets such a
+  rebuild.
   Only `.ban` files are redirected. Declared resources a level loads directly from the disc (not
   from its own PAK) are also taken from other PAKs when the disc has no such file.
 - **Some resources are made by the port.** A resource no PAK has can be generated from another when
@@ -91,6 +94,13 @@ What is declared is limited to character content (`meshes\`, `animation\`, `effe
 `textures\`); a level's menus, text and level files stay its own. If a character still does not
 initialize, the log names what is missing, e.g.
 `You are missing required animations for character Yoda: ...`.
+
+- **A mod's new resources are declared too.** A file under `mods\` with a name no PAK has (a
+  body of your own, `mods\meshes\chars\<folder>\<file>.msh`) is declared to the level when it is
+  asked for, and read as a loose file (`Declare: ... , loose` in the log).
+- **Texture sets are loaded from other levels.** A character's texture set (`player ... skin 1`,
+  e.g. the 501st clone markings) names textures only some levels have; the port declares them from
+  the levels that do.
 
 Only content that is on the disc can be pulled in this way. Entirely new content (a character
 from another game) still has to be provided as loose files under `mods\`, and memory-image

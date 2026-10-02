@@ -93,13 +93,18 @@ to trap loudly, except pure computation that is safe to run as-is (`SDK_PASSTHRO
 - `aliases.cpp`: sequences added to a character class's animation alias list (which of its own
   animations it plays for a sequence it inherits): Yoda's blocks against duelists, which otherwise
   play Anakin's and leave him floating.
-- `characters.cpp`: which class the player is (`player`), class names the game knows, HUD portraits of
-  characters a level did not expect, and choosing a character variant whose model is on the disc.
+- `characters.cpp`: what the player is (`player`, the Characters tab): its class, costume, texture
+  set and body, from the game's per-class costume lists; class names the game knows; HUD portraits
+  of characters a level did not expect. A change restarts the running mission
+  (`kernel::RestartMission`, an in-process reboot with the launch data the game started with). See
+  [characters](research/characters.md).
 - `devoptions.cpp`: the engine's developer variables (`vars_xbox.cfg`), its hidden debug displays.
 - `fixes.cpp`: guards against bugs in the game's own code that the developer tools (or content a
-  level was not built with) can trigger.
-- `src/debug/`: the debug menu (Dear ImGui) and the bridge to the game's own console, whose window
-  and output the retail build left out. See [debug menu](debug-menu.md).
+  level was not built with) can trigger, e.g. in rebuilding a body's animation binding for another
+  class.
+- `src/debug/`: the debug menu (Dear ImGui: the Console, Characters and Switches tabs) and the
+  bridge to the game's own console, whose window and output the retail build left out. See
+  [debug menu](debug-menu.md).
 
 ## The window (`src/core/window.cpp`)
 

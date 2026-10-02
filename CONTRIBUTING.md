@@ -67,7 +67,8 @@ behind; best with a level booted from `Default_Xbox.cfg`, since a restart mid-mo
 process), `SWROTS_DUELISTS=<slot>=<class>[,...]` (the console's `duelist` changes from the start, e.g.
 `0=IYoda`, for unattended versus tests), `SWROTS_PLAYER="<class>[ <costume>][ skin <set>][ mesh <mesh>]"` (the
 console's `player` from the start, e.g. `IVader` or `"IAnakin duel"`; `-` for the class keeps each
-level's own, e.g. `"- mesh obi"`).
+level's own, e.g. `"- mesh obi"`; the port also sets it itself when a restart falls back to a new
+process, to keep the player's choice).
 
 ## Finding your way around
 

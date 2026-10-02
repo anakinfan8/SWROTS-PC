@@ -1,0 +1,174 @@
+# Characters: classes, costumes, texture sets and bodies
+
+How the game decides what the player character is and looks like, and what the port changes so
+that any story level can be played as any character ([`player` and the Characters
+tab](../debug-menu.md#playing-as-another-character)). Addresses are the retail Xbox executable's
+(NTSC-U), as loaded. The code is `src/game/characters.cpp` (the player's class, costume, texture set
+and body; HUD portraits), `src/game/resources.cpp` (loading from other levels, animation lookups),
+`src/game/fixes.cpp` (the animation binding rebuild), `src/kernel/misc.cpp` (restarting a mission)
+and `src/debug/console.cpp`, `src/debug/menu.cpp` (the commands and the tab).
+
+## Four layers
+
+| Layer | What it is | Where the game keeps it | Port command |
+|---|---|---|---|
+| Class | behaviour: moves, weapons, AI, health (`IAnakin`, `ICloneTrooper`) | the class registry, by name | `player <class>` |
+| Costume | a named body for the class ("Mesh Choice") | the class's costume list; character +0x1E8 | `player <class> <costume>` |
+| Texture set | alternative textures for the body ("Starting texture set") | the costume list's header; character +0x1EC | `skin <set>` |
+| Body | the mesh (`meshes\chars\<folder>\<file>.msh`) and its animation binding (`.ban`) | the costume's record | `mesh <mesh>` |
+
+## Creating the player
+
+At a level start, 0x2AB660 creates the player through **0xB1F90** (`kSpawnPlayer`, cdecl
+`(TString* class, int costume)`) with the launch settings' player class (+0xAC: the mission
+list's or the versus select's class). The character factory creates it by class name (class
+registry 0xE9B60, create vfunc +0x30). The new character is given its costume through its vfunc
++0x2C8 (0xB1D60); at **0xB1DE1** (`mov eax, [esp+0xC] / mov edx, [ecx] / push eax`) `ecx` is the
+character and `[esp+0xC]` the costume index. -1 means the profile's costume (`[[0x68D944]+0x98]`),
+an index into the *level's own* class's list.
+
+The port hooks both: 0xB1F90 replaces the class name, and 0xB1DE1 calls `PlayerVariant(player,
+costume)`, which chooses the costume, gives the player its own copy of the list when the body
+changes, and sets the texture set. The chosen names live in the port's memory: every level change
+and restart reboots the game image, and the game's strings go with it.
+
+Versus fighters are created another way (0x27B7D0 from the duel's class table, then spawn 0xA2DE0):
+there 0xB1F90 swaps the class, but 0xB1DE1 is not reached, so costumes, texture sets and bodies do
+not apply in Versus yet.
+
+## Costume lists
+
+Static data in `.data`, one per class, found from a character at **+0x1E0** (set by the class's
+constructor, e.g. 0x29DD26 for Anakin). The game's own lists are shared by every character of the
+class; the port gives the player a copy when it changes the body, so NPCs of the class keep theirs.
+
+```c
+struct CostumeList {                 // 0x2C bytes, then the records
+    const char* name;                // the class without its "I": "Anakin", "CloneTrooper"
+    uint32_t    numbers[4];          // small numbers, meaning unknown (0x45, 0x0A, 0x45, 0x0A for most)
+    const char* textureSets[6];      // suffixes, null-terminated: "_var01", "_var02"
+    Costume     costumes[];          // up to a record with a null name
+};
+struct Costume {                     // 20 bytes
+    const char* name;                // "Anakin_Duel"
+    const char* mesh;                // "AnakinDuel\\AnakinDuel", under meshes\chars, no extension
+    uint32_t    zero;
+    const char* code;                // three letters: "AKN", "CLT", "CLC"
+    uint32_t    zero2;
+};
+```
+
+The port finds the lists by scanning `.data` once for this shape: a name in `.rdata`, four numbers
+below 0x10000 (the weapon, font and skeleton-joint tables built alike have pointers there), and a
+first record whose name has no backslash and whose mesh has one. 40 lists match. A class's list is
+the one whose name is the class name without its "I".
+
+Some lists name costumes whose models are not on the disc (cut during development): `Sidious`,
+`Emperor`, `Luke`, `CommanderCody` (`clonecomm`), `Obiwan_Dirty` and `Obiwan_NPC_Dirty`, `PadwMale`,
+`Grievous_shell`, and the battle droid's plain `BattleDroid` (its levels use `hordeBattleDroid`). The
+port never picks those: a class whose chosen or usual costume is missing gets the first one that is
+on the disc (`VariantOnDisc`).
+
+Costumes cover the class's looks across the story, and also NPC copies of the same bodies
+(`Anakin_NPC_Duel`); `player` matches a costume by number, name, or the shortest name containing
+the text, so `duel` is `Anakin_Duel`.
+
+## Texture sets
+
+The list header's suffixes are the class's texture sets, which level designers pick for each
+character they place: the instance property **"Starting texture set"** (registered by
+`ICharacter::Prop_Serialize`, 0x15B4F3: "(Default)" and the suffixes), stored at character
+**+0x1EC** (0 the plain textures, 1 the first suffix). When the body loads (0x155763, called from
+`ICharacter::Init`), the suffix `[list + set*4 + 0x10]` is put in the global **0x6941A0**, and the
+mesh's texture loader (**0x14F7E0**) first asks for `<folder>\<texture><suffix>` and uses it if the
+level declares it, else the plain texture. Character **+0x1F4** is a suffix that overrides it (the
+versus `_duel` look of a fighter against itself), and 0x15C670 / 0x15C730 are editor helpers that
+step or reset the set.
+
+| List | Sets | `_var01` textures on the disc (levels) |
+|---|---|---|
+| CloneTrooper | `_var01`, `_var02` | `hordetrooper_var01` (the 501st: m09a, m13, u109, u113), `clonesniper_var01` (m13) |
+| BlazeTrooper | `_var01`, `_var02` | `clonesky_var01` (m13, u113) |
+| Stormtrooper | `_var01`, `_var02` | none |
+| BattleDroid | `_var01` | `hordebattledroid_var01` (m01, m05, m06a, m12b, u105, u107, u112) |
+| GrappleDroid | `_var01` | `grappledroid_var01` (m06a, m06b, u106) |
+| BattleDroidFly, BuzzDroid, CloneWalker, CommanderCody | `_var01` | none |
+
+No `_var02` texture is on the disc. The clone trooper's plain textures are the 212th's orange
+(Utapau); the 501st's blue is `_var01`, placed only in the Coruscant temple levels.
+
+For a set, the port sets +0x1EC on the player and declares the set's textures in the running level
+from wherever the disc has them (every `*<suffix>.stx` in the body's folder), so the 501st look works
+on Utapau too.
+
+## Bodies and animation bindings
+
+A body is a mesh plus its **animation binding** (`<mesh>.ban`), which maps the skeleton to the
+animations the character uses. The disc has 75 meshes under `meshes\chars\`; the 48 shipped with a
+binding are character bodies. The other 27 are dismemberment limbs (`*_limbs`), debris
+(`*_chunks`), vehicles (gunship, Neimoidian shuttle), droid-throw pieces, Poggle's static model and
+`skeleton\skeleton_lightningfx` (the lightning effect). Loaded as a body, these fault in the mesh
+setup (0x611B4, from `TGMCharMesh` vfunc +0x28) and the game then loops in its own error handler,
+writing `Message.log` without end. The port offers and accepts only bodies: disc meshes with a
+binding, and loose meshes under `mods\` (the engine builds their binding).
+
+When the body changes, the port gives the player its own copy of the costume list with the body's
+mesh in the costume's record. A body on another class needs a binding for that class's animations,
+which the engine rebuilds; three things in that path had to be fixed:
+
+1. **The lookup's found list is compact.** The binding rebuild (0x68670 validates a binding,
+   0x68804 rebuilds) asks the animation lookup (0x65C50, vtable slot 0 of `[[0x66F7A4]+0x28]`; the
+   call returns to **0x6890D**) for every animation the class uses. The lookup leaves animations it
+   cannot find out of its found list, but the rebuild reads one entry per name. A few animations exist
+   in no PAK (`Anakin_Frc_Jump_C1`, `_C2`, cut from Anakin's force jump), so the rebuild read past the
+   list. For that caller only, the port lays the found list out again in the names' order (engine
+   array resize 0x21B70), each missing name taking its nearest neighbour's animation (the names are
+   sorted, so a close relative).
+2. **A failed rebuild threw the binding away.** After reporting missing animations ("BAN file creation
+   yielded missing anim errors"), the rebuild freed the binding and returned none (from **0x689F8**),
+   and the game crashed using it (0x68F37). The port continues on the success path (**0x68A33**).
+3. **A binding of the wrong size could be accepted.** The validator compares the binding's count with
+   the request, but when the packer says so (its vfunc +0xF4, at `[esp+0x13]`) a different count goes
+   on to a name-by-name comparison that reads past a shorter binding, which can then pass and be filled
+   past its end (0x68F71). At **0x68703** a different count now always rebuilds.
+
+The engine writes a rebuilt binding next to the mesh on the disc drive; the port redirects it to
+`cache\disc\` (`src/kernel/file.cpp`) and, when the engine reads it straight back, serves that copy
+before any other PAK's (the manual-file hook in `resources.cpp`); it used to get the original
+character's binding again.
+
+A loose mesh under a name no PAK has (a modder's own body) is declared to the level from `mods\`
+(`DeclareFromDisc`), and the mesh lists include `mods\meshes\chars\`.
+
+## HUD portraits
+
+The game manager (`[0x7EB964]`) keeps the level's character portraits in an array at +0x260
+`{capacity, count, data}` of `{face, head, name}`, filled at the level start for the characters the
+level expects (0x27BE30, add 0x1F8A00). The HUD finds the player's face by name (0x27B740) from the
+table of twelve portraits per class (0x650C30; heads 0x34 bytes on). The port loads a portrait from
+the table that the level did not expect, through the texture manager (`[[0x645F7C]+0x38]+0x4C`,
+vfunc +4). Classes without a portrait (the clone trooper) show none.
+
+## Restarting the mission
+
+A change of character applies when the player is created, so the port restarts the running mission:
+an in-process reboot with the launch data the running game image started with, as the game's own
+Restart Mission does (`kernel::RestartMission`). The launch data page itself is no use: the game
+rewrites it while it runs, and from the menus it no longer names the mission. The port keeps a copy
+from every boot (`BootInit`). A mission booted straight from `mods\Default_Xbox.cfg` has no launch
+data; its restart boots the same config again.
+
+If a game thread does not stop within 4 seconds (a game stuck in its error handler), the reboot falls
+back to starting the game process again; the character choice is handed to the new process as
+`SWROTS_PLAYER` (`kernel::SetBeforeRelaunch`), which it reads at its start.
+
+## Open questions
+
+- **Changing the character live**, without a restart: the body is loaded once in `ICharacter::Init`
+  (0x155710 onwards), and nothing in the retail build reloads it. Replacing the player in place (a
+  new character at the old one's position, with its health and state) is the likely route.
+- **Versus**: costumes, texture sets and bodies for fighters need the fighter creation path
+  (0x27B7D0 / 0xA2DE0) hooked like 0xB1DE1.
+- The four numbers in a costume list's header.
+- Characters a class's moves were not made for (droids with a Jedi's moves) stretch or twist; there
+  is no retargeting.

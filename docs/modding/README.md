@@ -7,6 +7,7 @@ No PAK rebuilding or disc image editing is needed.
 - [Dumping assets](dumping-assets.md): extracting the files a level loads, to use as mod sources
 - [Replacing textures](replacing-textures.md): STX textures and the embedded-name rule
 - [Swapping characters](swapping-characters.md): a character model swap, worked through with Palpatine
+  (to just play as another character or body, see the [debug menu](../debug-menu.md#playing-as-another-character))
 - [Adding versus fighters](adding-versus-fighters.md): giving a character its own versus select-screen slot
 - [How loading works](how-loading-works.md): level PAKs, load order and what the port does to allow overrides
 - [File formats](file-formats.md): what is known about the PAK, STX, MSH formats and the character table
