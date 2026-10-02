@@ -427,6 +427,25 @@ void CharactersTab()
     const std::string command = PlayerCommand(picks);
     if (ImGui::Button("Apply"))
         Submit(command);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Play as the picks (player).");
+    ImGui::SameLine();
+    // The same picks as a character in front of the player (spawn): a class is needed.
+    std::string spawn = "spawn " + picks.className;
+    if (!picks.costume.empty())
+        spawn += " " + picks.costume;
+    if (!picks.skin.empty())
+        spawn += " skin " + picks.skin;
+    const bool canSpawn = !picks.className.empty() && game::PlayerInLevel();
+    if (!canSpawn)
+        ImGui::BeginDisabled();
+    if (ImGui::Button("Spawn"))
+        Submit(spawn);
+    if (!canSpawn)
+        ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("A character of the picked class, costume and texture set (not body), in front of\n"
+                          "you (spawn). It fights for its class's side. Needs a class and a running mission.");
     ImGui::SameLine();
     if (ImGui::Button("Back to normal")) {
         picks = CharacterPicks();

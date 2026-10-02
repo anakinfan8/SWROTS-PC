@@ -59,6 +59,8 @@ void Print(LineKind kind, const char* format, ...)
     vsnprintf(text, sizeof(text), format, args);
     va_end(args);
     AddLines(kind, text);
+    if (kind == LineKind::Error)
+        LOG_WARN("Console: %s", text); // the log has what went wrong, as the console shows it
 }
 
 // --- The engine's print slots (empty stubs in the Xbox build) ------------------------------------
@@ -236,7 +238,7 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  player [<class>|- [<costume>] [skin <set>] [mesh <mesh>|off]|off]");
     Print(LineKind::Output, "                           play as a character, costume or mesh (- = the level's own class)");
     Print(LineKind::Output, "  saber [red|green|blue|purple|<r> <g> <b>|off]  the player's saber colour, its own only");
-    Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>] [mesh <mesh>]  a character in front of the player");
+    Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>]  a character in front of the player");
     Print(LineKind::Output, "  restart                  restart the mission");
     Print(LineKind::Output, "  autorestart [on|off]     whether player changes restart the mission at once");
     Print(LineKind::Output, "  variants <class>         a character class's costumes");
@@ -475,19 +477,30 @@ void Saber(const std::vector<std::string>& words)
         Print(LineKind::Output, "  saber: the game's colours");
 }
 
-// spawn <class> [<costume>] [skin <set>] [mesh <mesh>]
+// spawn <class> [<costume>] [skin <set>]. No other body: a body's animation binding belongs to its mesh
+// file and is shared by everyone wearing it, so another class's would be rebuilt over theirs (the
+// player's included), and their animation then crashes.
 void Spawn(const std::vector<std::string>& words)
 {
     std::string costume, skin, mesh;
     std::vector<std::string> rest;
     for (size_t i = 1; i < words.size(); ++i) {
-        if ((_stricmp(words[i].c_str(), "skin") == 0 || _stricmp(words[i].c_str(), "mesh") == 0) && i + 1 < words.size())
-            (_stricmp(words[i].c_str(), "skin") == 0 ? skin : mesh) = words[++i];
-        else
+        const bool isSkin = _stricmp(words[i].c_str(), "skin") == 0;
+        const bool isMesh = _stricmp(words[i].c_str(), "mesh") == 0;
+        if ((isSkin || isMesh) && i + 1 < words.size()) {
+            (isSkin ? skin : mesh) = words[i + 1];
+            ++i;
+        } else {
             rest.push_back(words[i]);
+        }
     }
     if (rest.empty() || rest.size() > 2) {
-        Print(LineKind::Error, "spawn <class> [<costume>] [skin <set>] [mesh <mesh>]");
+        Print(LineKind::Error, "spawn <class> [<costume>] [skin <set>]");
+        return;
+    }
+    if (!mesh.empty()) {
+        Print(LineKind::Error, "spawn takes no mesh: a body's animation binding is shared by everyone wearing it, "
+            "and another class's crashes them");
         return;
     }
     const char* name = game::RegisteredClassName(rest[0].c_str());
@@ -498,13 +511,6 @@ void Spawn(const std::vector<std::string>& words)
     if (name && !skin.empty() && game::ClassTextureSetIndex(name, skin) < 0) {
         Print(LineKind::Error, "%s has no texture set '%s' (see variants %s)", name, skin.c_str(), name);
         return;
-    }
-    if (!mesh.empty()) {
-        std::string error;
-        if (game::ResolveMesh(mesh, error).empty()) {
-            Print(LineKind::Error, "%s", error.c_str());
-            return;
-        }
     }
     std::string error;
     if (game::SpawnCharacter(rest[0].c_str(), rest.size() == 2 ? rest[1] : "", skin, mesh, error))

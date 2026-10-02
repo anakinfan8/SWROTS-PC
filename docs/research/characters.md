@@ -164,6 +164,55 @@ live), and recolours the player's sabers in its four weapon slots (character +0x
 `SetColor`. Only characters that are IJedi (IsA, vfunc +4, with the type key 0x249950, as the power-up
 switch asks) have the field. Cutscene events and scripts can still set a saber's colour.
 
+## Spawning characters
+
+The game spawns characters at run time in three places, all alike: the AI respawner (AI.cpp, 0x19C1E0),
+the versus fighters (0x27B7D0) and a developer item spawner with no callers (TGVaderInterface,
+0x2DF600, which builds a transform in front of the player). The recipe:
+
+1. The class's object: the class registry's lookup **0xE9B60** (cdecl `(const char* class)` -> class
+   info), then **0xE2350** (cdecl `(class info)` -> object; class info vfunc +0x30). Every class is
+   registered at startup, so any class can be created in any level.
+2. `object+0xC &= ~0x08000000` (created objects are marked inactive), the costume at +0x1E8 (and the
+   texture set at +0x1EC).
+3. **0xA2DE0** (cdecl `bool (object, owner or null, const float transform[16], 1)`): places it (object
+   vfunc +0x1F4), pushes it on the spawn stack (0x68D9A8, count 0x68DA38) and adds it to the level's
+   instance manager (`[[0x68D944]+0x58]`: 0xB6540 unowned, 0xB67B0 owned), which initializes it
+   (`ICharacter::Init`, loading what the level lacks through the port's resource hooks). Logged by
+   the game as "SpawnEnd %s (unowned)".
+4. The object's vfunc **+0xB4** (thiscall, no arguments; as the item spawner at 0x2DF849 and the player's
+   creation do): without it the character exists but is not seen.
+
+A character's transform is at **+0x150**: 4 rows of 4 floats (right, up, forward, position; the copy
+0x1A7970 takes 3 of each). The port places a spawn 120 units in front of the player, turned round.
+
+Loading a character once the level has loaded needed two fixes in the port's manual-file handling: the
+packer is then no longer streaming (+0x1D0 is 0) and its stream reader is freed while +4 still points
+at it, so (a) a manual file (a body's `.ban`) the disc does not have as a file is served from a PAK copy
+instead of being opened on the disc, and (b) the packer's "put the stream back" after a manual read
+(0x51E40, called by the scene at 0x4B0D5) returns at once when not streaming.
+
+**Shared bindings.** A body's animation binding (`<mesh>.ban`) is one resource per mesh, shared by every
+character wearing it; it is rebuilt for a class whose animations it lacks. Two classes in one body in
+the same level therefore fight over it, and the one rebuilt over crashes in its animation (0x663C5).
+The port refuses spawns that would do this; a spawn takes no other body.
+
+## Changing the player live (not done)
+
+- *The body in place*: re-running the body load's mesh part on the live player (costume vfunc +0x2C8,
+  the mesh holder +0x388's load vfunc +0x70, post-mesh 0x152780) loads the mesh but the animation
+  binding and state (+0x438, from `TLinkScript::Lock`) stay the old body's: the engine reports "No
+  running animation has valid movement data" every frame and the character spins.
+- *Replacing the player*: a new character spawned at the player's transform can take over. The
+  player that some 400 call sites ask for (0xA30F0) is the primary character record's +0xC (record
+  `[0x68DCEC]`, 0xB1C60), controller 0 is bound with 0x150580 (thiscall `(int id)`, rebinding the
+  input manager's slot through 0x8ADD0), +0x390 = 2 marks the player-controlled character, and
+  0x68EF70 points at the player's transform. With all of those moved over, the master camera still
+  follows the old player: it keeps its own target in its camera-mode objects (TCCMode / TCCControl,
+  around 0x12B7A0), not yet found. The old player can be marked inactive (+0xC 0x08000000) but keeps
+  being simulated and drawn; no instance removal function was found (0xB63F0 initializes and
+  registers, 0xB4CC0 finds by id).
+
 ## HUD portraits
 
 The game manager (`[0x7EB964]`) keeps the level's character portraits in an array at +0x260

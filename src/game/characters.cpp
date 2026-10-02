@@ -364,6 +364,37 @@ constexpr float kSpawnDistance = 120.0f; // in front of the player (a character 
 std::list<OwnedList> g_SpawnLists; // the spawned characters' own costume lists (this boot)
 int g_Spawned = 0;
 
+uint8_t* CreateCharacter(const char* name, const std::string& costume, const std::string& skin,
+    const std::string& mesh, const char* who, std::string& error)
+{
+    void* info = reinterpret_cast<void*(__cdecl*)(const char*)>(uintptr_t(kClassLookup))(name);
+    auto* object = info ? reinterpret_cast<uint8_t*(__cdecl*)(void*)>(uintptr_t(kCreateInstance))(info) : nullptr;
+    if (!object) {
+        error = std::string(name) + ": the game could not create it";
+        return nullptr;
+    }
+    *reinterpret_cast<uint32_t*>(object + kInstanceFlags) &= ~kInstanceInactive;
+    g_SpawnLists.emplace_back();
+    std::string body = mesh;
+    const int chosen = Dress(object, VariantOnDisc(object, 0), costume, skin, body, g_SpawnLists.back(), who);
+    *reinterpret_cast<int*>(object + kCharacterCostume) = chosen;
+    return object;
+}
+
+bool PlaceCharacter(uint8_t* object, const float* m, const char* name, std::string& error)
+{
+    const bool spawned = reinterpret_cast<bool(__cdecl*)(uint8_t*, void*, const float*, int)>(
+        uintptr_t(kSpawnInstance))(object, nullptr, m, 1);
+    if (!spawned) {
+        error = std::string(name) + ": the game refused to spawn it";
+        return false;
+    }
+    // Then activated, as the dev item spawner (0x2DF849) and the player's creation (0xB1D60) do.
+    reinterpret_cast<void(__fastcall*)(uint8_t*, void*)>((*reinterpret_cast<void* const* const*>(object))[kActivate / 4])(
+        object, nullptr);
+    return true;
+}
+
 int __stdcall PlayerVariant(void* player, int variant)
 {
     if (!player)
@@ -805,20 +836,21 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
         error = std::string(name) + " was cut from the game (none of its costumes is on the disc)";
         return false;
     }
-    void* info = reinterpret_cast<void*(__cdecl*)(const char*)>(uintptr_t(kClassLookup))(name);
-    auto* object = info ? reinterpret_cast<uint8_t*(__cdecl*)(void*)>(uintptr_t(kCreateInstance))(info) : nullptr;
-    if (!object) {
-        error = std::string(name) + ": the game could not create it";
-        return false;
-    }
-    *reinterpret_cast<uint32_t*>(object + kInstanceFlags) &= ~kInstanceInactive;
     char who[96];
     sprintf_s(who, "spawned %s #%d", name, ++g_Spawned);
-    g_SpawnLists.emplace_back();
-    std::string body = mesh;
-    const int chosen = Dress(object, VariantOnDisc(object, 0), costume, skin, body, g_SpawnLists.back(), who);
-    *reinterpret_cast<int*>(object + kCharacterCostume) = chosen;
-
+    uint8_t* object = CreateCharacter(name, costume, skin, mesh, who, error);
+    if (!object)
+        return false;
+    // A body's animation binding belongs to its mesh and is shared: a character of another class in the
+    // body the player wears would have it rebuilt for that class, and the player's animation would crash.
+    const uint8_t* list = *reinterpret_cast<uint8_t**>(object + kCharacterVariants);
+    const int costumeIndex = *reinterpret_cast<int*>(object + kCharacterCostume);
+    if (!g_PlayerMesh.empty() && list && costumeIndex >= 0 && costumeIndex < VariantCount(list) &&
+        Lower(VariantMesh(list, costumeIndex)) == Lower(g_PlayerMesh) && (!g_PlayerClass || _stricmp(g_PlayerClass, name) != 0)) {
+        error = std::string(name) + " wears " + g_PlayerMesh + ", the body you wear: another class in it would break "
+            "your animation (pick another costume)";
+        return false; // the object was never placed; the game does not see it
+    }
     // In front of the player, facing it: right and forward turned round.
     float m[16];
     std::memcpy(m, g_Player + kCharacterTransform, sizeof(m));
@@ -828,15 +860,8 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
         m[i] = -m[i];
         m[8 + i] = -m[8 + i];
     }
-    const bool spawned = reinterpret_cast<bool(__cdecl*)(uint8_t*, void*, const float*, int)>(
-        uintptr_t(kSpawnInstance))(object, nullptr, m, 1);
-    if (!spawned) {
-        error = std::string(name) + ": the game refused to spawn it";
+    if (!PlaceCharacter(object, m, name, error))
         return false;
-    }
-    // Then activated, as the dev item spawner (0x2DF849) and the player's creation (0xB1D60) do.
-    reinterpret_cast<void(__fastcall*)(uint8_t*, void*)>((*reinterpret_cast<void* const* const*>(object))[kActivate / 4])(
-        object, nullptr);
     LOG_INFO("Characters: %s at %.0f %.0f %.0f", who, m[12], m[13], m[14]);
     return true;
 }

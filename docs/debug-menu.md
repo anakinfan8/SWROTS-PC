@@ -30,6 +30,7 @@ Up/Down recall earlier commands.
 | `duelist [<slot> <class>]` | lists the versus select screen's fighters, or puts a character class in a slot (see below) |
 | `player [<class>\|- [<costume>] [skin <set>] [mesh <mesh>\|off]\|off]` | plays story levels as another character, costume, texture set or body (see below) |
 | `saber [red\|green\|blue\|purple\|<r> <g> <b>\|off]` | the player's saber colour, its own only, at once (see below) |
+| `spawn <class> [<costume>] [skin <set>]` | a character in front of you, at once (see below) |
 | `restart` | restarts the running mission (as the pause menu's Restart Mission does) |
 | `autorestart [on\|off]` | whether a `player` change restarts the running mission at once (on by default) |
 | `variants <class>` | lists a character class's costumes and texture sets |
@@ -168,6 +169,21 @@ redefines a colour for every saber that has it, so `sabercolor blue 255 0 0` tur
 red, and the power-up's brighter blade (which is not one of the four colours) shows the original
 colour while it lasts.
 
+**Spawning.** `spawn <class> [<costume>] [skin <set>]` puts a character in front of you, facing you,
+in the running mission at once: `spawn IVader`, `spawn ICloneTrooper horde skin 1` (a 501st
+trooper), `spawn IObiwan duel`. It is loaded from another level if this one lacks it (a short pause
+the first time), and fights for its class's side with its own AI: clones and droids attack Jedi, Jedi
+fight clones. Spawned characters stay until the mission restarts or the level changes. A spawn
+cannot wear another body (`mesh`), and a class whose body you are wearing as another class is
+refused: a body's animation binding belongs to its mesh and is shared by everyone in it, and another
+class's binding breaks theirs (the same holds for `player ... mesh` when the level already has a
+character of another class in that body).
+
+**Changing character without a restart** is not possible yet. The game loads a character's body once,
+when it is created; reloading it in place leaves the animations bound to the old body (the character
+spins and slides), and replacing the player with a new character moves the controls and HUD over but
+not the camera, which keeps its own target. A change restarts the mission instead (above).
+
 **Versus.** `player` is for story levels. In Versus it does not apply costumes, texture sets or meshes
 yet; use `duelist` (above) to choose the fighters.
 
@@ -235,6 +251,8 @@ The buttons:
 
 - **Apply** runs the `player` command for the picks (shown in grey under the buttons, so you can
   type it next time). During a mission it restarts the mission with the new character.
+- **Spawn** puts a character of the picked class, costume and texture set in front of you (`spawn`;
+  the mesh pick is not used).
 - **Back to normal** runs `player off`.
 - **Restart mission** restarts the running mission (greyed out outside a mission).
 - **Restart on apply** is `autorestart`: off, Apply only sets the character for the next level start.
