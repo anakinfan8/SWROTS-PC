@@ -303,11 +303,14 @@ KERNEL_EXPORT(328, XeUnloadSection);
 static std::wstring g_LaunchDataFile;
 static std::vector<uint8_t> g_PendingLaunchData; // from a process restart (--relaunch)
 static bool g_InProcessReboot = true;
-// The launch data of the game's last reboot into itself: what started the running mission (the game
-// does not reboot to enter one from its menus, only to leave them; the page itself then changes).
+// The launch data this game image started with (a reboot's or a process relaunch's): what started the
+// running mission. The page itself does not keep it: the game rewrites it while it runs.
 static std::vector<uint8_t> g_MissionLaunchData;
 
 void SetInProcessReboot(bool enabled) { g_InProcessReboot = enabled; }
+
+static void (*g_BeforeRelaunch)() = nullptr;
+void SetBeforeRelaunch(void (*callback)()) { g_BeforeRelaunch = callback; }
 
 // The fallback: restart the whole game process instead.
 void RelaunchProcess(const void* launchData)
@@ -320,6 +323,8 @@ void RelaunchProcess(const void* launchData)
         CloseHandle(f);
     }
     // A new process starts the game with the launch data (its own window replaces this one).
+    if (g_BeforeRelaunch)
+        g_BeforeRelaunch();
     audio::Silence();
     LogFlush();
     wchar_t exe[MAX_PATH];
@@ -378,8 +383,6 @@ void XBAPI HalReturnToFirmware(ULONG Routine)
         std::string p = path;
         for (char& c : p) c = char(tolower(static_cast<unsigned char>(c)));
         if (p.find("default.xbe") != std::string::npos) {
-            const auto* page = static_cast<const uint8_t*>(LaunchDataPage);
-            g_MissionLaunchData.assign(page, page + 4096);
             LogFlush();
             if (g_InProcessReboot)
                 RebootInProcess(LaunchDataPage);
@@ -484,6 +487,10 @@ void BootInit(const void* launchData)
         launchData = g_PendingLaunchData.data();
     LaunchDataPage = nullptr;
     if (launchData) {
+        if (launchData != g_MissionLaunchData.data()) {
+            const auto* data = static_cast<const uint8_t*>(launchData);
+            g_MissionLaunchData.assign(data, data + 4096);
+        }
         void* page = MmAllocateContiguousMemoryEx(4096, 0, 0xFFFFFFFF, 0, PAGE_READWRITE);
         std::memcpy(page, launchData, 4096);
         LaunchDataPage = page;

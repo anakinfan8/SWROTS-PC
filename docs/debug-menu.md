@@ -99,8 +99,8 @@ not change keeps its plain version.
 
 `mesh <mesh>` dresses the player in any character mesh instead, keeping the class's moves:
 `player IObiwan mesh anakinduel` is Obi-Wan in Anakin's duel outfit, and `player mesh obi` keeps each
-level's own character but in Obi-Wan's mesh. `meshes` lists them (`meshes obi` those containing
-"obi"); a mesh is named by its folder, its file or `folder\file`. A mesh made for one character has
+level's own character but in Obi-Wan's mesh. `meshes` lists them, the character bodies only (`meshes obi` those
+containing "obi"; limbs, debris, vehicles and effects are left out, as they crash the game as a body); a mesh is named by its folder, its file or `folder\file`. A mesh made for one character has
 its skeleton's animations bound for that character; for another, the game rebuilds that binding
 (written to `cache\disc\`), and a few animations no character has (a cut part of Anakin's force jump)
 borrow a neighbouring one. `player <class> mesh off` goes back to the costume's own mesh, and
@@ -125,7 +125,10 @@ registers, most of them not characters), **Costume** (the picked class's costume
 were cut and are not on the disc; below them its texture sets, if any) and **Mesh** (every character mesh on the disc), each with a
 filter box. *(each level's own)*, *(the usual one)* and *(the costume's own)* keep the game's choice.
 **Apply** runs the matching `player` command, **Back to normal** runs `player off`, **Restart
-mission** restarts the running mission, and *Restart on apply* is `autorestart`.
+mission** restarts the running mission, and *Restart on apply* is `autorestart`. The last lines the commands printed show under the buttons.
+
+`player` is for story levels: in Versus the costume, texture set and mesh do not apply yet (use
+`duelist` for the fighters).
 
 ## Switches tab
 

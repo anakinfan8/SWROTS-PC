@@ -498,7 +498,7 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
     std::string command = words[0];
     for (char& c : command)
         c = char(tolower(static_cast<unsigned char>(c)));
-    uint8_t* registry = console + game::kConsoleRegistry;
+    uint8_t* registry = console ? console + game::kConsoleRegistry : nullptr;
 
     // name=value / name:value, as in vars_xbox.cfg
     if (words.size() == 1) {
@@ -595,7 +595,19 @@ void RunQueuedConsoleCommands()
     for (const std::string& line : queue) {
         uint8_t* console = Console();
         if (!console) {
-            AddLines(LineKind::Port, "The game's console does not exist yet.");
+            // The port's own character commands need no game console (it is made with the game's menus,
+            // and gone while a level loads).
+            const std::vector<std::string> words = Words(line);
+            static const char* const kStandalone[] = { "player", "variants", "meshes", "restart", "autorestart",
+                "duelist", "clear", "cls" };
+            const bool standalone = !words.empty() && std::any_of(std::begin(kStandalone), std::end(kStandalone),
+                [&](const char* c) { return _stricmp(words[0].c_str(), c) == 0; });
+            if (standalone) {
+                LOG_INFO("Console: %s", line.c_str());
+                RunPortCommand(nullptr, line);
+            } else {
+                AddLines(LineKind::Port, "The game's console does not exist yet.");
+            }
             continue;
         }
         LOG_INFO("Console: %s", line.c_str());

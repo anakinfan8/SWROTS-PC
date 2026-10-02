@@ -16,6 +16,7 @@
 #include "core/patch.h"
 #include "game/game.h"
 #include "game/resources.h"
+#include "kernel/kernel.h"
 
 namespace swrots::game {
 
@@ -159,6 +160,24 @@ using SpawnPlayerFn = void(__cdecl*)(void* playerClass, int variant);
 SpawnPlayerFn g_OriginalSpawnPlayer = nullptr;
 
 bool g_PlayerSpawned = false;  // a level started this boot (its player was created)
+
+// A restart that falls back to a new game process (core/window.h) would lose the choice, which lives
+// in this process: it is handed over as SWROTS_PLAYER, which the new process reads at its start.
+void HandChoiceToRelaunch()
+{
+    if (!g_PlayerClass && g_PlayerVariant.empty() && g_PlayerSkin.empty() && g_PlayerMesh.empty()) {
+        SetEnvironmentVariableA("SWROTS_PLAYER", nullptr);
+        return;
+    }
+    std::string spec = g_PlayerClass ? g_PlayerClass : "-";
+    if (g_PlayerClass && !g_PlayerVariant.empty())
+        spec += " " + g_PlayerVariant;
+    if (g_PlayerClass && !g_PlayerSkin.empty())
+        spec += " skin " + g_PlayerSkin;
+    if (!g_PlayerMesh.empty())
+        spec += " mesh " + g_PlayerMesh;
+    SetEnvironmentVariableA("SWROTS_PLAYER", spec.c_str());
+}
 bool g_RestartOnChange = true; // a change restarts the mission ([Debug] AutoRestart)
 
 void __cdecl SpawnPlayerHook(void* playerClass, int variant)
@@ -202,8 +221,8 @@ int __stdcall PlayerVariant(void* player, int variant)
         const std::string mesh = ResolveMesh(g_PlayerMesh, error);
         const std::string file = Lower("meshes\\chars\\" + mesh + ".msh");
         if (mesh.empty() || (!DiscHasResource(file) && !HasLooseResource(file))) {
-            LOG_WARN("Characters: no mesh '%s' on the disc or under mods; the costume's own instead%s%s",
-                g_PlayerMesh.c_str(), error.empty() ? "" : ": ", error.c_str());
+            LOG_WARN("Characters: mesh '%s' not used (%s); the costume's own instead", g_PlayerMesh.c_str(),
+                error.empty() ? "not on the disc or under mods" : error.c_str());
             g_PlayerMesh.clear();
         } else {
             g_PlayerMesh = mesh;
@@ -417,6 +436,7 @@ void InstallCharacters()
     }
     environmentRead = true;
     g_PlayerSpawned = false;
+    kernel::SetBeforeRelaunch(&HandChoiceToRelaunch);
     uint8_t* stub = AllocStub(16);
     std::memcpy(stub, reinterpret_cast<const void*>(uintptr_t(kSpawnPlayer)), 5);
     stub[5] = 0xE9;
@@ -533,8 +553,17 @@ std::vector<std::string> CharacterMeshes(const std::string& filter)
     std::vector<std::string> out;
     const std::string want = Lower(filter);
     const std::string prefix = "meshes\\chars\\";
-    std::vector<std::string> names = DiscResourceNames(prefix);
-    for (const std::string& name : LooseResourceNames(prefix)) // a mod's own meshes
+    // The disc's character bodies: the meshes shipped with an animation binding (.ban). The others are
+    // limbs, debris, vehicles and effects (skeleton\skeleton_lightningfx), which crash the game as a
+    // character (0x611B4). A mod's own meshes count: the engine makes their binding.
+    const std::vector<std::string> disc = DiscResourceNames(prefix);
+    std::vector<std::string> names;
+    for (const std::string& name : disc) {
+        if (name.size() > 4 && name.compare(name.size() - 4, 4, ".msh") == 0 &&
+            std::find(disc.begin(), disc.end(), name.substr(0, name.size() - 4) + ".ban") != disc.end())
+            names.push_back(name);
+    }
+    for (const std::string& name : LooseResourceNames(prefix))
         names.push_back(name);
     for (const std::string& name : names) {
         if (name.size() < prefix.size() + 4 || name.compare(name.size() - 4, 4, ".msh") != 0)
@@ -568,6 +597,10 @@ std::string ResolveMesh(const std::string& text, std::string& error)
         return matches[0];
     if (matches.size() > 1) {
         error = "several meshes match: " + matches[0] + ", " + matches[1] + (matches.size() > 2 ? ", ..." : "");
+        return "";
+    }
+    if (want.find('\\') != std::string::npos && DiscHasResource(prefix + want + ".msh")) {
+        error = want + " is not a character body (limbs, debris, a vehicle or an effect; see meshes)";
         return "";
     }
     if (want.find('\\') != std::string::npos)

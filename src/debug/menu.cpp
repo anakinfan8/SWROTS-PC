@@ -122,7 +122,8 @@ void Submit(const std::string& line)
     g_ScrollToBottom = true;
 }
 
-void ConsoleTab()
+// Takes the console's new lines.
+void UpdateLog()
 {
     const size_t before = g_LogCount;
     if (ConsoleCleared())
@@ -130,6 +131,22 @@ void ConsoleTab()
     g_LogCount = CopyConsoleLines(g_LogCount, g_Log);
     if (g_LogCount != before)
         g_ScrollToBottom = true;
+}
+
+ImVec4 LineColor(LineKind kind)
+{
+    switch (kind) {
+    case LineKind::Error: return ImVec4(1.0f, 0.45f, 0.45f, 1.0f);
+    case LineKind::Engine: return ImVec4(1.0f, 0.85f, 0.45f, 1.0f);
+    case LineKind::Port: return ImVec4(0.65f, 0.65f, 0.65f, 1.0f);
+    case LineKind::Output: break;
+    }
+    return ImGui::GetStyleColorVec4(ImGuiCol_Text);
+}
+
+void ConsoleTab()
+{
+    UpdateLog();
 
     if (ImGui::Button("help"))
         Submit("help");
@@ -151,14 +168,7 @@ void ConsoleTab()
         while (clipper.Step()) {
             for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
                 const ConsoleLine& line = g_Log[i];
-                ImVec4 color = ImGui::GetStyleColorVec4(ImGuiCol_Text);
-                switch (line.kind) {
-                case LineKind::Error: color = ImVec4(1.0f, 0.45f, 0.45f, 1.0f); break;
-                case LineKind::Engine: color = ImVec4(1.0f, 0.85f, 0.45f, 1.0f); break;
-                case LineKind::Port: color = ImVec4(0.65f, 0.65f, 0.65f, 1.0f); break;
-                case LineKind::Output: break;
-                }
-                ImGui::PushStyleColor(ImGuiCol_Text, color);
+                ImGui::PushStyleColor(ImGuiCol_Text, LineColor(line.kind));
                 ImGui::TextUnformatted(line.text.c_str());
                 ImGui::PopStyleColor();
             }
@@ -270,7 +280,8 @@ void CharactersTab()
         currentSkin.empty() ? "" : ", texture set ", currentSkin.c_str(),
         currentMesh.empty() ? "" : ", mesh ", currentMesh.c_str());
 
-    const float buttonsHeight = ImGui::GetFrameHeightWithSpacing() * 2.2f;
+    UpdateLog();
+    const float buttonsHeight = ImGui::GetFrameHeightWithSpacing() * 2.2f + ImGui::GetTextLineHeightWithSpacing() * 3;
     if (ImGui::BeginTable("characters", 3, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable,
             ImVec2(0, -buttonsHeight))) {
         ImGui::TableSetupColumn("Class");
@@ -395,6 +406,12 @@ void CharactersTab()
         ImGui::SetTooltip("Applying restarts the running mission with the new character.\n"
                           "Off: it applies from the next level start. [Debug] AutoRestart in settings.ini.");
     ImGui::TextDisabled("%s", command.c_str());
+    // The last lines the commands printed (the console tab has them all).
+    for (size_t i = g_Log.size() > 3 ? g_Log.size() - 3 : 0; i < g_Log.size(); ++i) {
+        ImGui::PushStyleColor(ImGuiCol_Text, LineColor(g_Log[i].kind));
+        ImGui::TextUnformatted(g_Log[i].text.c_str());
+        ImGui::PopStyleColor();
+    }
 }
 
 // Square corners, in the colours of the Slayer engine's own debug windows (Indiana Jones and
