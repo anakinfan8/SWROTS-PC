@@ -213,6 +213,17 @@ The port refuses spawns that would do this; a spawn takes no other body.
   being simulated and drawn; no instance removal function was found (0xB63F0 initializes and
   registers, 0xB4CC0 finds by id).
 
+## Sides
+
+A character's AI data is at **+0xA00**; its "Team Setting" (a bit per team A-H, 0x1-0x80) at AI data
+**+0x214**. It is 0 for every character checked (the player, clones, droids, Jedi, spawned or placed):
+by default the classes decide who fights whom. When a character weighs another (0x18F451), and both
+have teams, a shared bit makes them allies and none makes them enemies; with either at 0 the class
+rules decide. 0x18FA8C turns the player into another's enemy by giving the player every team the other
+lacks. The port's `spawn ... ally|enemy` gives the player the bit 0x8000 and the spawn 0x8000 (ally) or
+0x4000 (enemy), outside the designers' A-H. Character +0x3F4 is a category, not a side: 1 the player,
+0x10 troops (clones and droids alike), 0x08 duelists (Jedi, Vader); the AI keeps a copy at +0x3FC.
+
 ## Health and Force
 
 A character's health is a float at **+0x130** and its maximum at **+0x134** (1000 for Anakin, 50 for a

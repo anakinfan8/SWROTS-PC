@@ -30,9 +30,10 @@ Up/Down recall earlier commands.
 | `duelist [<slot> <class>]` | lists the versus select screen's fighters, or puts a character class in a slot (see below) |
 | `player [<class>\|- [<costume>] [skin <set>] [mesh <mesh>\|off]\|off]` | plays story levels as another character, costume, texture set or body (see below) |
 | `saber [red\|green\|blue\|purple\|<r> <g> <b>\|off]` | the player's saber colour, its own only, at once (see below) |
-| `spawn <class> [<costume>] [skin <set>]` | a character in front of you, at once (see below) |
+| `spawn <class> [<costume>] [skin <set>] [ally\|enemy]` | a character in front of you, at once (see below) |
 | `infiniteforce [on\|off]` | your Force stays full |
 | `peek <hex offset> [count]` | research: your character's fields from that offset, as hex and as numbers, in the console and log |
+| `team [spawned] [<hex teams>]` | research: your (or the last spawned character's) teams and AI data |
 | `memory` | the game's memory use and the characters spawned in this level (as the Game tab) |
 | `restart` | restarts the running mission (as the pause menu's Restart Mission does) |
 | `autorestart [on\|off]` | whether a `player` change restarts the running mission at once (on by default) |
@@ -175,8 +176,11 @@ colour while it lasts.
 **Spawning.** `spawn <class> [<costume>] [skin <set>]` puts a character in front of you, facing you,
 in the running mission at once: `spawn IVader`, `spawn ICloneTrooper horde skin 1` (a 501st
 trooper), `spawn IObiwan duel`. It is loaded from another level if this one lacks it (a short pause
-the first time), and fights for its class's side with its own AI: clones and droids attack Jedi, Jedi
-fight clones. Spawned characters stay until the mission restarts or the level changes. Tested with
+the first time), and fights for its class's side with its own AI (clones and droids attack Jedi, Jedi
+fight clones), or for the side you give it: `spawn IBattleDroid ally` fights for you, `spawn
+ICloneTrooper enemy` against you. A side puts you and the spawn on teams of the port's own; a level
+character the level designers gave a team of theirs (most have none) then sees you as an enemy unless
+it shares one. Spawned characters stay until the mission restarts or the level changes. Tested with
 100 at once (about 7 MiB more memory, no errors); large crowds lower the frame rate. A spawn
 cannot wear another body (`mesh`), and a class whose body you are wearing as another class is
 refused: a body's animation binding belongs to its mesh and is shared by everyone in it, and another
@@ -264,8 +268,8 @@ The last three lines the commands printed show under the buttons: the choice, or
 
 **Spawn** has its own picks: a **class** (cut classes are left out), a **costume** and, for classes
 that have them, a **skin** (texture set), then **how many** (1 to 5) and **Spawn** (`spawn`, once
-per character). The count of characters spawned in this level is shown beside it. *Side* (ally or
-enemy) is greyed out for now: a spawn fights for its class's own side.
+per character). The count of characters spawned in this level is shown beside it. **Side**: its
+class's own, ally or enemy (as `spawn ... ally|enemy`).
 
 ## Game tab
 

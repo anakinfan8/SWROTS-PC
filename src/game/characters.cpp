@@ -359,12 +359,15 @@ constexpr uint32_t kInstanceFlags = 0x0C;
 constexpr uint32_t kInstanceInactive = 0x08000000;
 constexpr uint32_t kCharacterCostume = 0x1E8;
 constexpr uint32_t kCharacterTransform = 0x150;
-constexpr uint32_t kActivate = 0xB4;           // object vfunc, thiscall ()
+constexpr uint32_t kActivate = 0xB4;
+constexpr uint32_t kPortPlayerTeam = 0x8000; // a team bit of the port's: the player and its allies
+constexpr uint32_t kPortEnemyTeam = 0x4000;  // and its spawned enemies           // object vfunc, thiscall ()
 constexpr float kSpawnDistance = 120.0f; // in front of the player (a character is about 70 tall)
 
 std::list<OwnedList> g_SpawnLists; // the spawned characters' own costume lists (this boot)
 int g_Spawned = 0;          // numbers the spawns in the log (this session)
 int g_SpawnedInLevel = 0;   // spawned in the running level
+uint8_t* g_LastSpawned = nullptr;
 
 uint8_t* CreateCharacter(const char* name, const std::string& costume, const std::string& skin,
     const std::string& mesh, const char* who, std::string& error)
@@ -601,6 +604,7 @@ void InstallCharacters()
     g_Player = nullptr;
     g_SpawnLists.clear(); // the level's characters went with the reboot
     g_SpawnedInLevel = 0;
+    g_LastSpawned = nullptr;
     kernel::SetBeforeRelaunch(&HandChoiceToRelaunch);
     uint8_t* stub = AllocStub(16);
     std::memcpy(stub, reinterpret_cast<const void*>(uintptr_t(kSpawnPlayer)), 5);
@@ -824,7 +828,7 @@ int ClassTextureSetIndex(const char* className, const std::string& spec)
 }
 
 bool SpawnCharacter(const char* className, const std::string& costume, const std::string& skin,
-    const std::string& mesh, std::string& error)
+    const std::string& mesh, SpawnSide side, std::string& error)
 {
     if (!PlayerAlive()) {
         error = "no mission is running";
@@ -866,7 +870,17 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
     if (!PlaceCharacter(object, m, name, error))
         return false;
     LOG_INFO("Characters: %s at %.0f %.0f %.0f", who, m[12], m[13], m[14]);
+    if (side != SpawnSide::Default) {
+        // Teams decide only when both have some (0x18F451: a shared bit is an ally, none an enemy);
+        // the player gets the port's own bit, outside the level designers' teams A-H.
+        uint32_t playerTeams = 0;
+        CharacterTeams(g_Player, playerTeams);
+        SetCharacterTeams(g_Player, playerTeams | kPortPlayerTeam);
+        SetCharacterTeams(object, side == SpawnSide::Ally ? kPortPlayerTeam : kPortEnemyTeam);
+        LOG_INFO("Characters: %s is %s", who, side == SpawnSide::Ally ? "an ally" : "an enemy");
+    }
     ++g_SpawnedInLevel;
+    g_LastSpawned = object;
     return true;
 }
 
@@ -896,6 +910,47 @@ void PlayerFrame()
 uint8_t* PlayerObject()
 {
     return PlayerAlive() ? g_Player : nullptr;
+}
+
+uint8_t* LastSpawnedObject()
+{
+    return g_LastSpawned;
+}
+
+// A character's teams: its AI data (character +0xA00) holds "Team Setting" (TAIData +0x214, a bit per
+// team A-H), which the AI reads to tell friend from foe (e.g. 0x18FA8C, which makes the player and
+// another character enemies by giving the player every team the other is not in).
+constexpr uint32_t kCharacterAIData = 0xA00;
+constexpr uint32_t kAITeams = 0x214;
+
+bool CharacterTeams(const uint8_t* character, uint32_t& teams)
+{
+    if (!character)
+        return false;
+    __try {
+        const uint8_t* ai = *reinterpret_cast<uint8_t* const*>(character + kCharacterAIData);
+        if (!ai)
+            return false;
+        teams = *reinterpret_cast<const uint32_t*>(ai + kAITeams);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool SetCharacterTeams(uint8_t* character, uint32_t teams)
+{
+    if (!character)
+        return false;
+    __try {
+        uint8_t* ai = *reinterpret_cast<uint8_t**>(character + kCharacterAIData);
+        if (!ai)
+            return false;
+        *reinterpret_cast<uint32_t*>(ai + kAITeams) = teams;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
 }
 
 void SetPlayerMaxHealth(float health)

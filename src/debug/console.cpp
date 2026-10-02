@@ -240,7 +240,7 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  player [<class>|- [<costume>] [skin <set>] [mesh <mesh>|off]|off]");
     Print(LineKind::Output, "                           play as a character, costume or mesh (- = the level's own class)");
     Print(LineKind::Output, "  saber [red|green|blue|purple|<r> <g> <b>|off]  the player's saber colour, its own only");
-    Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>]  a character in front of the player");
+    Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>] [ally|enemy]  a character in front of the player");
     Print(LineKind::Output, "  infiniteforce [on|off]   your Force stays full");
     Print(LineKind::Output, "  memory                   the game's memory use, and the characters spawned");
     Print(LineKind::Output, "  restart                  restart the mission");
@@ -493,8 +493,13 @@ void Saber(const std::vector<std::string>& words)
 void Spawn(const std::vector<std::string>& words)
 {
     std::string costume, skin, mesh;
+    game::SpawnSide side = game::SpawnSide::Default;
     std::vector<std::string> rest;
     for (size_t i = 1; i < words.size(); ++i) {
+        if (_stricmp(words[i].c_str(), "ally") == 0 || _stricmp(words[i].c_str(), "enemy") == 0) {
+            side = _stricmp(words[i].c_str(), "ally") == 0 ? game::SpawnSide::Ally : game::SpawnSide::Enemy;
+            continue;
+        }
         const bool isSkin = _stricmp(words[i].c_str(), "skin") == 0;
         const bool isMesh = _stricmp(words[i].c_str(), "mesh") == 0;
         if ((isSkin || isMesh) && i + 1 < words.size()) {
@@ -505,7 +510,7 @@ void Spawn(const std::vector<std::string>& words)
         }
     }
     if (rest.empty() || rest.size() > 2) {
-        Print(LineKind::Error, "spawn <class> [<costume>] [skin <set>]");
+        Print(LineKind::Error, "spawn <class> [<costume>] [skin <set>] [ally|enemy]");
         return;
     }
     if (!mesh.empty()) {
@@ -523,22 +528,27 @@ void Spawn(const std::vector<std::string>& words)
         return;
     }
     std::string error;
-    if (game::SpawnCharacter(rest[0].c_str(), rest.size() == 2 ? rest[1] : "", skin, mesh, error))
+    if (game::SpawnCharacter(rest[0].c_str(), rest.size() == 2 ? rest[1] : "", skin, mesh, side, error))
         Print(LineKind::Output, "  spawned %s", name);
     else
         Print(LineKind::Error, "%s", error.c_str());
 }
 
-// peek <hex offset> [count]: the player object's dwords from there, as hex and as floats (research).
+// peek <hex offset> [count] [spawned]: the player's (or the last spawned character's) dwords from
+// there, as hex and as floats (research).
 void Peek(const std::vector<std::string>& words)
 {
-    uint8_t* player = game::PlayerObject();
+    // "spawned": the last spawned character; "at <hex address>" as the 4th word: any address.
+    const bool spawned = words.size() > 3 && _stricmp(words[3].c_str(), "spawned") == 0;
+    const bool at = words.size() > 4 && _stricmp(words[3].c_str(), "at") == 0;
+    uint8_t* player = at ? reinterpret_cast<uint8_t*>(uintptr_t(strtoul(words[4].c_str(), nullptr, 16)))
+        : spawned ? game::LastSpawnedObject() : game::PlayerObject();
     if (!player || words.size() < 2) {
-        Print(LineKind::Error, player ? "peek <hex offset> [count]" : "no mission is running");
+        Print(LineKind::Error, player ? "peek <hex offset> [count] [spawned | at <hex address>]" : "no mission is running");
         return;
     }
     const uint32_t offset = uint32_t(strtoul(words[1].c_str(), nullptr, 16)) & ~3u;
-    const int count = words.size() > 2 ? std::clamp(atoi(words[2].c_str()), 1, 64) : 8;
+    const int count = words.size() > 2 ? std::clamp(atoi(words[2].c_str()), 1, 2048) : 8;
     for (int i = 0; i < count; ++i) {
         uint32_t value = 0;
         __try {
@@ -570,6 +580,32 @@ void Memory()
     Print(LineKind::Output, "  memory: Xbox %.1f / %.0f MiB, other %.1f MiB, %zu pool blocks; %d spawned in this level",
         m.contiguousUsed / 1048576.0, m.contiguousSize / 1048576.0, m.virtualCommitted / 1048576.0, m.poolBlocks,
         game::SpawnedCount());
+}
+
+// team [spawned] [<hex teams>]: the player's (or last spawned character's) teams (research).
+void Team(const std::vector<std::string>& words)
+{
+    size_t next = 1;
+    const bool spawned = words.size() > next && _stricmp(words[next].c_str(), "spawned") == 0;
+    if (spawned)
+        ++next;
+    uint8_t* character = spawned ? game::LastSpawnedObject() : game::PlayerObject();
+    uint32_t teams = 0;
+    if (words.size() > next && !game::SetCharacterTeams(character, uint32_t(strtoul(words[next].c_str(), nullptr, 16)))) {
+        Print(LineKind::Error, "no such character, or it has no AI data");
+        return;
+    }
+    if (!game::CharacterTeams(character, teams)) {
+        Print(LineKind::Error, "no such character, or it has no AI data");
+        return;
+    }
+    Print(LineKind::Output, "  %s teams: %08X", spawned ? "spawned" : "player", teams);
+    // Research: the AI data's first fields ("Enemies" +0x20, "Preferred Enemies" +0x38).
+    const uint8_t* ai = character ? *reinterpret_cast<uint8_t* const*>(character + 0xA00) : nullptr;
+    for (uint32_t off = 0; ai && off < 0x60; off += 0x10) {
+        const auto* w = reinterpret_cast<const uint32_t*>(ai + off);
+        Print(LineKind::Output, "  ai+%02X: %08X %08X %08X %08X", off, w[0], w[1], w[2], w[3]);
+    }
 }
 
 void AutoRestart(const std::vector<std::string>& words)
@@ -667,7 +703,7 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         command != "duelist" && command != "player" && command != "variants" && command != "meshes" &&
         command != "restart" && command != "autorestart" && command != "unlockprofile" &&
         command != "freecam" && command != "saber" && command != "spawn" && command != "peek" &&
-        command != "infiniteforce" && command != "memory")
+        command != "infiniteforce" && command != "memory" && command != "team")
         return false;
     Print(LineKind::Output, "> %s", line.c_str());
     if (command == "duelist") {
@@ -694,6 +730,8 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         InfiniteForceCommand(words);
     } else if (command == "memory") {
         Memory();
+    } else if (command == "team") {
+        Team(words);
     } else if (command == "unlockprofile") {
         // The game's own developer command (TVaderGameOptions), not registered in the retail build.
         reinterpret_cast<void(__cdecl*)()>(uintptr_t(game::kUnlockProfile))();
@@ -783,7 +821,7 @@ void RunQueuedConsoleCommands()
             // and gone while a level loads).
             const std::vector<std::string> words = Words(line);
             static const char* const kStandalone[] = { "player", "variants", "meshes", "restart", "autorestart",
-                "duelist", "freecam", "saber", "spawn", "peek", "infiniteforce", "memory", "clear", "cls" };
+                "duelist", "freecam", "saber", "spawn", "peek", "infiniteforce", "memory", "team", "clear", "cls" };
             const bool standalone = !words.empty() && std::any_of(std::begin(kStandalone), std::end(kStandalone),
                 [&](const char* c) { return _stricmp(words[0].c_str(), c) == 0; });
             if (standalone) {

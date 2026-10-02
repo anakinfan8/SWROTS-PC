@@ -62,8 +62,9 @@ bool ClassHasBody(const char* className);
 // costume (empty: its usual one), texture set and body (empty: the costume's) as for the player. It
 // takes its class's own AI and teams. False with `error` set when it cannot (no mission running, an
 // unknown or cut class).
+enum class SpawnSide { Default, Ally, Enemy };
 bool SpawnCharacter(const char* className, const std::string& costume, const std::string& skin,
-    const std::string& mesh, std::string& error);
+    const std::string& mesh, SpawnSide side, std::string& error);
 
 // The running level's player, for display: its class (type name), costume, position and heading
 // (degrees about the up axis). `valid` is false outside a level.
@@ -82,6 +83,12 @@ PlayerInfo CurrentPlayer();
 void SetPlayerMaxHealth(float health);
 // The running level's player object, or null (for research tools such as `peek`).
 uint8_t* PlayerObject();
+// The character spawned last in the running level, or null (research).
+uint8_t* LastSpawnedObject();
+
+// A character's teams (a bit per team A-H, "Team Setting" in the game's level data), from its AI data.
+bool CharacterTeams(const uint8_t* character, uint32_t& teams);
+bool SetCharacterTeams(uint8_t* character, uint32_t teams);
 // Infinite Force: the player's Force kept at its maximum (the game's `god` covers only health).
 void SetInfiniteForce(bool on);
 bool InfiniteForce();

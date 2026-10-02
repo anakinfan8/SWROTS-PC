@@ -304,20 +304,22 @@ void SpawnArea()
     ImGui::SetNextItemWidth(width * 0.6f);
     ImGui::SliderInt("How many##spawn", &picks.count, 1, 5);
     ImGui::SameLine();
-    ImGui::BeginDisabled(); // not yet: needs where a character keeps its team
     static int side = 0;
     ImGui::SetNextItemWidth(width * 0.8f);
     ImGui::Combo("Side##spawn", &side, "its class's own\0ally\0enemy\0");
-    ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Coming: a spawn fights for its class's own side for now (clones and droids\n"
-                          "against Jedi, Jedi against clones; a hero as AI is your opponent).");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Its class's own: as the game has it (clones and droids against Jedi, a hero as AI\n"
+                          "against you). Ally fights for you, enemy against you.");
     ImGui::SameLine();
     std::string spawn = "spawn " + picks.className;
     if (!picks.costume.empty())
         spawn += " " + picks.costume;
     if (!picks.skin.empty())
         spawn += " skin " + picks.skin;
+    if (side == 1)
+        spawn += " ally";
+    else if (side == 2)
+        spawn += " enemy";
     const bool canSpawn = !picks.className.empty() && game::PlayerInLevel();
     if (!canSpawn)
         ImGui::BeginDisabled();
