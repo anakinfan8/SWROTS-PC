@@ -242,6 +242,7 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  saber [red|green|blue|purple|<r> <g> <b>|off]  the player's saber colour, its own only");
     Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>]  a character in front of the player");
     Print(LineKind::Output, "  infiniteforce [on|off]   your Force stays full");
+    Print(LineKind::Output, "  memory                   the game's memory use, and the characters spawned");
     Print(LineKind::Output, "  restart                  restart the mission");
     Print(LineKind::Output, "  autorestart [on|off]     whether player changes restart the mission at once");
     Print(LineKind::Output, "  variants <class>         a character class's costumes");
@@ -563,6 +564,14 @@ void InfiniteForceCommand(const std::vector<std::string>& words)
     Print(LineKind::Output, "  infinite Force: %s", game::InfiniteForce() ? "on" : "off");
 }
 
+void Memory()
+{
+    const kernel::MemoryUsage m = kernel::QueryMemoryUsage();
+    Print(LineKind::Output, "  memory: Xbox %.1f / %.0f MiB, other %.1f MiB, %zu pool blocks; %d spawned in this level",
+        m.contiguousUsed / 1048576.0, m.contiguousSize / 1048576.0, m.virtualCommitted / 1048576.0, m.poolBlocks,
+        game::SpawnedCount());
+}
+
 void AutoRestart(const std::vector<std::string>& words)
 {
     if (words.size() == 2 && (_stricmp(words[1].c_str(), "on") == 0 || _stricmp(words[1].c_str(), "off") == 0))
@@ -658,7 +667,7 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         command != "duelist" && command != "player" && command != "variants" && command != "meshes" &&
         command != "restart" && command != "autorestart" && command != "unlockprofile" &&
         command != "freecam" && command != "saber" && command != "spawn" && command != "peek" &&
-        command != "infiniteforce")
+        command != "infiniteforce" && command != "memory")
         return false;
     Print(LineKind::Output, "> %s", line.c_str());
     if (command == "duelist") {
@@ -683,6 +692,8 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         Peek(words);
     } else if (command == "infiniteforce") {
         InfiniteForceCommand(words);
+    } else if (command == "memory") {
+        Memory();
     } else if (command == "unlockprofile") {
         // The game's own developer command (TVaderGameOptions), not registered in the retail build.
         reinterpret_cast<void(__cdecl*)()>(uintptr_t(game::kUnlockProfile))();
@@ -772,7 +783,7 @@ void RunQueuedConsoleCommands()
             // and gone while a level loads).
             const std::vector<std::string> words = Words(line);
             static const char* const kStandalone[] = { "player", "variants", "meshes", "restart", "autorestart",
-                "duelist", "freecam", "saber", "spawn", "peek", "infiniteforce", "clear", "cls" };
+                "duelist", "freecam", "saber", "spawn", "peek", "infiniteforce", "memory", "clear", "cls" };
             const bool standalone = !words.empty() && std::any_of(std::begin(kStandalone), std::end(kStandalone),
                 [&](const char* c) { return _stricmp(words[0].c_str(), c) == 0; });
             if (standalone) {

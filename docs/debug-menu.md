@@ -33,6 +33,7 @@ Up/Down recall earlier commands.
 | `spawn <class> [<costume>] [skin <set>]` | a character in front of you, at once (see below) |
 | `infiniteforce [on\|off]` | your Force stays full |
 | `peek <hex offset> [count]` | research: your character's fields from that offset, as hex and as numbers, in the console and log |
+| `memory` | the game's memory use and the characters spawned in this level (as the Game tab) |
 | `restart` | restarts the running mission (as the pause menu's Restart Mission does) |
 | `autorestart [on\|off]` | whether a `player` change restarts the running mission at once (on by default) |
 | `variants <class>` | lists a character class's costumes and texture sets |
@@ -175,7 +176,8 @@ colour while it lasts.
 in the running mission at once: `spawn IVader`, `spawn ICloneTrooper horde skin 1` (a 501st
 trooper), `spawn IObiwan duel`. It is loaded from another level if this one lacks it (a short pause
 the first time), and fights for its class's side with its own AI: clones and droids attack Jedi, Jedi
-fight clones. Spawned characters stay until the mission restarts or the level changes. A spawn
+fight clones. Spawned characters stay until the mission restarts or the level changes. Tested with
+100 at once (about 7 MiB more memory, no errors); large crowds lower the frame rate. A spawn
 cannot wear another body (`mesh`), and a class whose body you are wearing as another class is
 refused: a body's animation binding belongs to its mesh and is shared by everyone in it, and another
 class's binding breaks theirs (the same holds for `player ... mesh` when the level already has a

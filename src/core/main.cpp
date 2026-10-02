@@ -243,7 +243,7 @@ static void Run(void* reserveBase, unsigned reserveSize, void* contiguousBase, u
         SetEnvironmentVariableW(L"SWROTS_REBOOT_EVERY", nullptr);
         kernel::StartRebootTest(unsigned(_wtoi(rebootEvery)));
     }
-    char commands[512] = {};
+    char commands[8192] = {};
     if (GetEnvironmentVariableA("SWROTS_COMMANDS", commands, sizeof(commands))) {
         // Development aid: "<seconds>:<console command>;..." run that long after the start, for unattended
         // tests of live actions (spawn, saber). Not passed on to a relaunched process.
