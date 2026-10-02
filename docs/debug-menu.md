@@ -27,7 +27,9 @@ Up/Down recall earlier commands.
 | `<variable>=<value>` | the same, in the `vars_xbox.cfg` form |
 | `toggle <variable>` | flips an on/off variable |
 | `duelist [<slot> <class>]` | lists the versus select screen's fighters, or puts a character class in a slot (see below) |
-| `player [<class>\|off]` | plays levels as another character class, from the next level start (see below) |
+| `player [<class> [<costume>] [mesh <mesh>]\|mesh <mesh>\|off]` | plays levels as another character, costume or mesh, from the next level start (see below) |
+| `variants <class>` | lists a character class's costumes |
+| `meshes [text]` | lists the character meshes on the disc (those containing the text) |
 | `unlockprofile` | the game's developer cheat: unlocks everything in the signed-in profile (story, fighters, arenas, bonus missions, concept art); the game saves it with the profile, so back up `saves\` first to keep your progress |
 | `clear` | empties the console (also the Clear button) |
 | anything else | runs through the game's console: the game's own commands |
@@ -72,6 +74,21 @@ whose usual costume is not on the disc gets the first of its variants that is (t
 Anakin, Obi-Wan, Dooku, Grievous, Mace, Serra, Cin Drallig, Vader, old Obi-Wan, Yoda, Cody and the
 bodyguard), loaded from another level if need be; other classes, such as the clone trooper, have none.
 Missions may expect their own character (cutscenes, scripted moments).
+
+A costume follows the class: `player IAnakin duel` is Anakin without robe or hood (his Mustafar
+outfit), also in Order 66, where he normally wears his cloak; `player ICloneTrooper horde` is the horde
+trooper. `variants <class>` lists a class's costumes by number and name; a costume can be given by
+either, or by a part of its name that no other has (the shortest name wins: `duel` is `Anakin_Duel`,
+not `Anakin_NPC_Duel`). Some costumes the game lists were cut and their models are not on the disc
+(marked in the list); those fall back to the usual costume.
+
+`mesh <mesh>` dresses the player in any character mesh instead, keeping the class's moves:
+`player IObiwan mesh anakinduel` is Obi-Wan in Anakin's duel outfit, and `player mesh obi` keeps each
+level's own character but in Obi-Wan's mesh. `meshes` lists them (`meshes obi` those containing
+"obi"); a mesh is named by its folder, its file or `folder\file`. A mesh made for one character has
+its skeleton's animations bound for that character; for another, the game rebuilds that binding
+(written to `cache\disc\`), and a few animations no character has (a cut part of Anakin's force jump)
+borrow a neighbouring one. `player <class> mesh off` goes back to the costume's own mesh.
 
 Some of the game's commands:
 

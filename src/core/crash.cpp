@@ -195,9 +195,12 @@ static LONG __stdcall FirstChance(EXCEPTION_POINTERS* info)
         LOG_WARN("First-chance exception %08lX at %s", code, where);
         // For the first few, list likely return addresses into game code.
         if (s_logged <= 2) {
+            const CONTEXT* c = info->ContextRecord;
+            LOG_WARN("    eax %08lX ebx %08lX ecx %08lX edx %08lX esi %08lX edi %08lX ebp %08lX esp %08lX", c->Eax,
+                c->Ebx, c->Ecx, c->Edx, c->Esi, c->Edi, c->Ebp, c->Esp);
             const uint32_t* sp = reinterpret_cast<const uint32_t*>(uintptr_t(info->ContextRecord->Esp));
             int shown = 0;
-            for (int i = 0; i < 512 && shown < 16; ++i) {
+            for (int i = 0; i < 1024 && shown < 32; ++i) {
                 uint32_t v;
                 __try { v = sp[i]; } __except (EXCEPTION_EXECUTE_HANDLER) { break; }
                 if (v >= 0x11000 && v < 0x4EF000) {

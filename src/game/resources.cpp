@@ -28,6 +28,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <intrin.h>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -667,8 +668,26 @@ int __fastcall ReadHook(void* packer, void* edx, DecodeFn decode, EnginePath* pa
 // Some resources (a mesh's .ban animation binding) are "manual" PAK entries, read through their own
 // call (game::kPackerOpenManual): it parses the entry header at the stream position and hands out the
 // packer's reader at the data if the name matches. As with ordinary reads, an entry further on is
-// skipped to, and one the level's PAK does not have further on is served from another PAK's copy
-// through a memory file, leaving the level's stream where it is.
+// skipped to, and one the level's PAK does not have further on is served through a memory file,
+// leaving the level's stream where it is: from a loose copy (mods\, or a binding the engine rebuilt
+// into cache\disc\ -- it reads the binding again right after writing it) or else another PAK's copy.
+
+bool ReadHostFile(const std::wstring& path, std::vector<uint8_t>& data)
+{
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return false;
+    LARGE_INTEGER size{};
+    bool ok = GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart < 0x10000000;
+    DWORD read = 0;
+    if (ok) {
+        data.resize(size_t(size.QuadPart));
+        ok = ReadFile(file, data.data(), DWORD(data.size()), &read, nullptr) && read == data.size();
+    }
+    CloseHandle(file);
+    return ok;
+}
 
 using OpenManualFn = EngineObject*(__fastcall*)(uint8_t* packer, void* edx, EnginePath* path);
 OpenManualFn g_OriginalOpenManual = nullptr;
@@ -701,14 +720,20 @@ EngineObject* __fastcall OpenManualHook(uint8_t* packer, void* edx, EnginePath* 
         }
         return g_OriginalOpenManual(packer, edx, path);
     }
-    const PakIndex* owner = nullptr;
-    const PakIndex::Entry* entry = FindElsewhere(index, wanted, owner);
     std::vector<uint8_t> data;
-    if (!entry || entry->rawSize == 0 || !owner->ReadData(*entry, data))
-        return g_OriginalOpenManual(packer, edx, path);
+    std::wstring from;
+    if (HasLooseCopy(full) && ReadHostFile(LooseHostPath(full), data)) {
+        from = LooseHostPath(full);
+    } else {
+        const PakIndex* owner = nullptr;
+        const PakIndex::Entry* entry = FindElsewhere(index, wanted, owner);
+        if (!entry || entry->rawSize == 0 || !owner->ReadData(*entry, data))
+            return g_OriginalOpenManual(packer, edx, path);
+        from = owner->Path();
+    }
     EngineObject* file = FileMemoryCtor(EngineAlloc()(kFileMemorySize), nullptr);
     VirtualAt<FileMemoryOpenFn>(file, kFileMemoryOpenSlot)(file, nullptr, data.data(), uint32_t(data.size()));
-    LOG_INFO("PAK: %s (manual) loaded from %ls", wanted.c_str(), owner->Path().c_str());
+    LOG_INFO("PAK: %s (manual) loaded from %ls", wanted.c_str(), from.c_str());
     return PackReaderCtor(EngineAlloc()(0x24), nullptr, file, 0); // kept: the caller does not free it
 }
 
@@ -1021,8 +1046,58 @@ using AnimationLookupFn = bool(__fastcall*)(void* self, void* edx, void* script,
     EngineArray* found, EngineArray* missing, int flag);
 AnimationLookupFn g_OriginalAnimationLookup = nullptr;
 
+// Animations found nowhere (a borrowed mesh's binding can ask for Anakin_Frc_Jump_C1/C2, which no PAK
+// has) are left out of the found list, but the binding built from it (0x6890D, kept by fixes.cpp)
+// reads one entry per name asked for. The list is laid out again in the names' order, each missing
+// name taking its nearest neighbour's animation (the names are sorted, so a close relative). An entry
+// carries its animation's name at +4.
+constexpr uint32_t kEngineArrayResize = 0x00021B70; // thiscall TArray (int count, const T* fill)
+constexpr uint32_t kBindingLookupReturn = 0x0006890D;  // the binding rebuild's lookup call returns here
+
+void AlignFoundAnimations(const EngineArray* names, EngineArray* found, const EngineArray* missing, int from)
+{
+    // Only for a list of names, all accounted for as found or missing.
+    if (!names || !found || !missing || from != 0 || !names->data ||
+        names->count != found->count + missing->count || found->count >= names->count)
+        return;
+    std::vector<const char*> compact;
+    for (int i = 0; i < found->count; ++i)
+        if (found->data[i])
+            compact.push_back(found->data[i]);
+    const char* none = nullptr;
+    reinterpret_cast<void(__fastcall*)(EngineArray*, void*, int, const char* const*)>(uintptr_t(kEngineArrayResize))(
+        found, nullptr, names->count, &none);
+    if (found->count != names->count)
+        return;
+    size_t next = 0;
+    int filled = 0;
+    for (int i = 0; i < names->count; ++i) {
+        const char* name = names->data[i];
+        if (next < compact.size() && name && _stricmp(compact[next] + 4, name) == 0) {
+            found->data[i] = compact[next++];
+            continue;
+        }
+        found->data[i] = !compact.empty() ? compact[next < compact.size() ? next : compact.size() - 1] : nullptr;
+        ++filled;
+    }
+    LOG_INFO("Declare: %d animation(s) found nowhere; a neighbour stands in for each", filled);
+}
+
+bool AnimationLookupResolved(void* self, void* edx, void* script, void* classInfo, void* arg3, EngineArray* found,
+    EngineArray* missing, int flag);
+
 bool __fastcall AnimationLookupHook(void* self, void* edx, void* script, void* classInfo, void* arg3,
     EngineArray* found, EngineArray* missing, int flag)
+{
+    const int foundBefore = found ? found->count : 0;
+    const bool result = AnimationLookupResolved(self, edx, script, classInfo, arg3, found, missing, flag);
+    if (missing && missing->count > 0 && uintptr_t(_ReturnAddress()) == kBindingLookupReturn)
+        AlignFoundAnimations(static_cast<const EngineArray*>(classInfo), found, missing, foundBefore);
+    return result;
+}
+
+bool AnimationLookupResolved(void* self, void* edx, void* script, void* classInfo, void* arg3, EngineArray* found,
+    EngineArray* missing, int flag)
 {
     int foundBefore = found ? found->count : 0;
     bool result = g_OriginalAnimationLookup(self, edx, script, classInfo, arg3, found, missing, flag);
@@ -1079,6 +1154,11 @@ bool DiscHasResource(const std::string& lowerName)
 {
     const PakIndex* owner = nullptr;
     return FindElsewhere(nullptr, lowerName, owner) != nullptr;
+}
+
+bool HasLooseResource(const std::string& lowerName)
+{
+    return HasLooseCopy(("d:\\" + lowerName).c_str());
 }
 
 void RegisterResourcePatch(const std::string& lowerName, ResourcePatch patch)

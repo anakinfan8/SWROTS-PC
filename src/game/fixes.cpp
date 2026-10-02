@@ -37,6 +37,28 @@ __declspec(naked) void TimeStackPopGuard()
     }
 }
 
+// A character mesh's animation binding (.ban) is rebuilt when the mesh is used with animations its
+// shipped binding lacks (a mesh on another character class). The rebuild (0x6890D) reports the
+// animations it cannot find and then throws the whole binding away (from 0x689F8: frees it and
+// returns 0), so the character has none and the game crashes using it (0x68F37). Some animations the
+// classes ask for exist nowhere in the game (Anakin's Anakin_Frc_Jump_C1/C2, cut during development),
+// so a borrowed mesh could never get a binding. Kept instead: after the report, the success path
+// (0x68A33, the same stack) takes the binding, with a neighbouring animation in each missing one's
+// place (resources.cpp lays the found list out for it). The game's own bindings never fail this way.
+constexpr uint32_t kBindingFailSite = 0x000689F8;
+constexpr uint32_t kBindingKeep = 0x00068A33;
+constexpr uint8_t kBindingFailBytes[] = { 0x8B, 0x44, 0x24, 0x3C, 0x8B, 0x0D, 0x7C, 0x5F, 0x64, 0x00 };
+
+// A shipped binding is checked against the animations asked for (0x686F4): a different count means
+// a rebuild -- unless the packer says so otherwise (its vfunc +0xF4, kept at [esp+0x13]), when the
+// names are compared one by one, as far as the request goes, past the end of a shorter binding, which
+// can then pass (a mesh on another class: Obi-Wan's 787 animations against Anakin's binding) and be
+// filled past its end (0x68F71). A count that differs now always rebuilds:
+//   mov cl, [esp+0x13] / test cl, cl / je 0x68804   (12 bytes) -> jmp 0x68804
+constexpr uint32_t kBindingCountSite = 0x00068703;
+constexpr uint32_t kBindingRebuild = 0x00068804;
+constexpr uint8_t kBindingCountBytes[] = { 0x8A, 0x4C, 0x24, 0x13, 0x84, 0xC9, 0x0F, 0x84, 0xF5, 0x00, 0x00, 0x00 };
+
 // StdHashString (StdHashString.h) tables with a node pool take new entries from the pool's free list
 // (0x62640) without checking that it has one; the pools are sized for exactly what a level's PAK
 // holds, so a level that loads more than that (a character added by the port's resource loading)
@@ -82,6 +104,16 @@ void InstallGameFixes()
         PatchCall(kTimeStackPopSite, reinterpret_cast<const void*>(&TimeStackPopGuard), 7);
     else
         LOG_WARN("Game fix: time-scale stack site does not match; not patched");
+    if (std::memcmp(reinterpret_cast<const void*>(uintptr_t(kBindingFailSite)), kBindingFailBytes,
+            sizeof(kBindingFailBytes)) == 0)
+        PatchJump(kBindingFailSite, reinterpret_cast<const void*>(uintptr_t(kBindingKeep)));
+    else
+        LOG_WARN("Game fix: animation binding site does not match; not patched");
+    if (std::memcmp(reinterpret_cast<const void*>(uintptr_t(kBindingCountSite)), kBindingCountBytes,
+            sizeof(kBindingCountBytes)) == 0)
+        PatchJump(kBindingCountSite, reinterpret_cast<const void*>(uintptr_t(kBindingRebuild)));
+    else
+        LOG_WARN("Game fix: animation binding count site does not match; not patched");
 }
 
 } // namespace swrots::game

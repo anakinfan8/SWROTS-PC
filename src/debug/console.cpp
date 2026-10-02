@@ -231,7 +231,10 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  toggle <variable>        (on/off variables)");
     Print(LineKind::Output, "  listvars [text]          all variables, or those whose name contains text");
     Print(LineKind::Output, "  duelist [<slot> <class>] versus select slots, or put a class in one");
-    Print(LineKind::Output, "  player [<class>|off]     play levels (from the next start) as a character class");
+    Print(LineKind::Output, "  player [<class> [<costume>] [mesh <mesh>]|mesh <mesh>|off]");
+    Print(LineKind::Output, "                           play levels (from the next start) as a character, costume or mesh");
+    Print(LineKind::Output, "  variants <class>         a character class's costumes");
+    Print(LineKind::Output, "  meshes [text]            the character meshes on the disc (those containing text)");
     Print(LineKind::Output, "  unlockprofile            unlock everything in the signed-in profile (it is saved with it)");
     Print(LineKind::Output, "  clear                    empties this window");
     Print(LineKind::Output, "  help");
@@ -311,21 +314,117 @@ void Duelist(const std::vector<std::string>& words)
         Print(LineKind::Output, "  %d  %s", i, game::Duelist(i));
 }
 
-void Player(const std::vector<std::string>& words)
+void ShowPlayer()
 {
-    if (words.size() == 2) {
-        bool off = _stricmp(words[1].c_str(), "off") == 0;
-        if (!game::SetPlayerClass(off ? nullptr : words[1].c_str())) {
-            Print(LineKind::Error, "%s: not a class the game knows", words[1].c_str());
-            return;
-        }
-    } else if (words.size() != 1) {
-        Print(LineKind::Error, "player [<class>|off]");
+    const char* current = game::PlayerClass();
+    const std::string variant = game::PlayerVariantChoice(), mesh = game::PlayerMesh();
+    if (!current && variant.empty() && mesh.empty()) {
+        Print(LineKind::Output, "  player: each level's own");
         return;
     }
-    const char* current = game::PlayerClass();
-    Print(LineKind::Output, current ? "  player: %s (from the next level start; restart the level to see it)"
-                                    : "  player: each level's own%s", current ? current : "");
+    Print(LineKind::Output, "  player: %s%s%s%s%s", current ? current : "the level's own class",
+        variant.empty() ? "" : ", costume ", variant.c_str(), mesh.empty() ? "" : ", mesh ", mesh.c_str());
+    Print(LineKind::Output, "  (from the next level start: restart the level to see it)");
+}
+
+// player [<class> [<costume>] [mesh <mesh>] | mesh <mesh>|off | off]
+void Player(const std::vector<std::string>& words)
+{
+    if (words.size() == 1) {
+        ShowPlayer();
+        return;
+    }
+    if (_stricmp(words[1].c_str(), "off") == 0 && words.size() == 2) {
+        game::SetPlayerClass(nullptr);
+        ShowPlayer();
+        return;
+    }
+    // The mesh, from "mesh <mesh>" anywhere after the class.
+    std::string mesh;
+    bool meshGiven = false;
+    std::vector<std::string> rest;
+    for (size_t i = 1; i < words.size(); ++i) {
+        if (_stricmp(words[i].c_str(), "mesh") == 0) {
+            if (i + 1 >= words.size()) {
+                Print(LineKind::Error, "mesh <mesh>: a mesh name (see meshes), or off");
+                return;
+            }
+            meshGiven = true;
+            if (_stricmp(words[i + 1].c_str(), "off") != 0) {
+                std::string error;
+                mesh = game::ResolveMesh(words[i + 1], error);
+                if (mesh.empty()) {
+                    Print(LineKind::Error, "%s", error.c_str());
+                    return;
+                }
+            }
+            ++i;
+        } else {
+            rest.push_back(words[i]);
+        }
+    }
+    if (!rest.empty()) {
+        const char* name = game::RegisteredClassName(rest[0].c_str());
+        if (!name) {
+            Print(LineKind::Error, "%s: not a class the game knows", rest[0].c_str());
+            return;
+        }
+        if (rest.size() > 2) {
+            Print(LineKind::Error, "player <class> [<costume>] [mesh <mesh>]");
+            return;
+        }
+        std::string variant = rest.size() == 2 ? rest[1] : "";
+        if (!variant.empty() && game::FindVariantList(name) && game::ClassVariantIndex(name, variant) < 0) {
+            Print(LineKind::Error, "%s has no costume '%s' (see variants %s)", name, variant.c_str(), name);
+            return;
+        }
+        game::SetPlayerClass(name);
+        game::SetPlayerVariant(variant);
+        if (!meshGiven)
+            game::SetPlayerMesh("");
+    }
+    if (meshGiven) {
+        game::SetPlayerMesh(mesh);
+        if (!mesh.empty() && !game::CharacterMeshes("").empty()) {
+            bool onDisc = false;
+            for (const std::string& m : game::CharacterMeshes(mesh))
+                onDisc = onDisc || m == mesh;
+            if (!onDisc)
+                Print(LineKind::Output, "  %s is not on the disc: a loose copy under mods\\meshes\\chars\\ must provide it",
+                    mesh.c_str());
+        }
+    }
+    ShowPlayer();
+}
+
+void Variants(const std::vector<std::string>& words)
+{
+    if (words.size() != 2) {
+        Print(LineKind::Error, "variants <class>");
+        return;
+    }
+    const char* name = game::RegisteredClassName(words[1].c_str());
+    if (!name) {
+        Print(LineKind::Error, "%s: not a class the game knows", words[1].c_str());
+        return;
+    }
+    const std::vector<game::Variant> variants = game::ClassVariants(name);
+    if (variants.empty()) {
+        Print(LineKind::Output, "  %s: no costume list found", name);
+        return;
+    }
+    Print(LineKind::Output, "  %s's costumes (player %s <name or number>):", name, name);
+    for (size_t i = 0; i < variants.size(); ++i)
+        Print(LineKind::Output, "  %2zu  %-24s %-36s%s", i, variants[i].name, variants[i].mesh,
+            variants[i].onDisc ? "" : "  (not on the disc)");
+}
+
+void Meshes(const std::vector<std::string>& words)
+{
+    const std::vector<std::string> meshes = game::CharacterMeshes(words.size() > 1 ? words[1] : "");
+    for (const std::string& mesh : meshes)
+        Print(LineKind::Output, "  %s", mesh.c_str());
+    Print(LineKind::Output, "  %zu mesh(es); use one with player mesh <mesh> or player <class> mesh <mesh>", meshes.size());
 }
 
 // Returns false when the line is for the game's own console.
@@ -353,13 +452,18 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         return true;
     }
     if (command != "help" && command != "listvars" && command != "get" && command != "set" && command != "toggle" &&
-        command != "duelist" && command != "player" && command != "unlockprofile")
+        command != "duelist" && command != "player" && command != "variants" && command != "meshes" &&
+        command != "unlockprofile")
         return false;
     Print(LineKind::Output, "> %s", line.c_str());
     if (command == "duelist") {
         Duelist(words);
     } else if (command == "player") {
         Player(words);
+    } else if (command == "variants") {
+        Variants(words);
+    } else if (command == "meshes") {
+        Meshes(words);
     } else if (command == "unlockprofile") {
         // The game's own developer command (TVaderGameOptions), not registered in the retail build.
         reinterpret_cast<void(__cdecl*)()>(uintptr_t(game::kUnlockProfile))();

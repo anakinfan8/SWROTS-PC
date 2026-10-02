@@ -17,6 +17,9 @@ void InstallResourceHooks(const std::wstring& gameData, const std::wstring& mods
 // "cinematics\introcamera\anakin_intro_cam.cin") with its data.
 bool DiscHasResource(const std::string& lowerName);
 
+// True when mods\ (or cache\disc\) has a loose copy of `lowerName`, as above.
+bool HasLooseResource(const std::string& lowerName);
+
 // Edits a resource's data as a PAK serves it, before the engine decodes it (a loose copy under
 // mods\ is used as it is). `lowerName` is relative and the name the engine asks for, e.g.
 // "interfc\front_end\xml\select_jedi.xml" (in the PAK, the compiled select_jedi.xbl_xml);

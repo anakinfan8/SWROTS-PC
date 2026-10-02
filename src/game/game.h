@@ -151,6 +151,15 @@ inline constexpr uint32_t kDuelistVariants = 0x005CC1C0;
 inline constexpr uint32_t kClassRegistry = 0x0068EBE8;
 inline constexpr uint32_t kClassRegistryBuckets = 0x08;
 inline constexpr int kClassRegistryBucketCount = 237;
+// Character variants (costumes): each class's list is static data in .data -- a 0x2C-byte header whose
+// first field names the class (e.g. "Anakin" for IAnakin), then records of 20 bytes {const char* name,
+// const char* mesh (under meshes\chars\, e.g. "AnakinDuel\AnakinDuel"), ?, code, ?} until a null
+// name. A character's constructor points its +0x1E0 at its class's list.
+inline constexpr uint32_t kCharacterVariants = 0x1E0;
+inline constexpr uint32_t kVariantRecords = 0x2C;
+inline constexpr uint32_t kVariantRecordSize = 20;
+inline constexpr uint32_t kRDataStart = 0x0055F660, kRDataEnd = 0x00612BC8;
+inline constexpr uint32_t kDataStart = 0x00612BE0, kDataEnd = 0x00962BF8;
 inline constexpr uint32_t kUnhandledExceptionFilter = 0x004A319F;
 inline constexpr uint32_t kXMountUtilityDrive = 0x004A0A7B;
 inline constexpr uint32_t kXFormatUtilityDrive = 0x004A0B80;

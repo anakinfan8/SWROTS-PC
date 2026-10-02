@@ -1,12 +1,15 @@
-// Characters: playing a level as another character class.
+// Characters: playing a level as another character class, in any of its costumes or any mesh.
 
 #include "game/characters.h"
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "core/log.h"
 #include "core/patch.h"
@@ -21,6 +24,73 @@ namespace {
 // (every level change or restart), and the choice lasts until the game is closed.
 std::string g_PlayerClassName;
 const char* g_PlayerClass = nullptr;
+std::string g_PlayerVariant; // a costume: its name, a part of it or its number; empty for the usual one
+std::string g_PlayerMesh;    // a mesh under meshes/chars ("folder\\file"); empty for the costume's own
+std::vector<uint8_t> g_PlayerVariants; // the player's own copy of its class's costumes, for a mesh
+
+std::string Lower(std::string text)
+{
+    for (char& c : text)
+        c = char(tolower(static_cast<unsigned char>(c)));
+    return text;
+}
+
+bool MeshOnDisc(const char* mesh)
+{
+    return mesh && DiscHasResource(Lower(std::string("meshes\\chars\\") + mesh + ".msh"));
+}
+
+// A costume list's records, up to the first null name.
+int VariantCount(const uint8_t* list)
+{
+    int count = 0;
+    while (list && count < 32 && *reinterpret_cast<const char* const*>(list + kVariantRecords + count * kVariantRecordSize))
+        ++count;
+    return count;
+}
+
+const char* VariantName(const uint8_t* list, int i)
+{
+    return *reinterpret_cast<const char* const*>(list + kVariantRecords + i * kVariantRecordSize);
+}
+
+const char* VariantMesh(const uint8_t* list, int i)
+{
+    return *reinterpret_cast<const char* const*>(list + kVariantRecords + i * kVariantRecordSize + 4);
+}
+
+// A costume by its number, its name or a part of its name (the shortest name containing it: "duel"
+// is Anakin_Duel); -1 when none match or two equally short ones do.
+int FindVariant(const uint8_t* list, const std::string& spec)
+{
+    const int count = VariantCount(list);
+    if (spec.empty() || !count)
+        return -1;
+    if (std::all_of(spec.begin(), spec.end(), [](char c) { return isdigit(static_cast<unsigned char>(c)) != 0; })) {
+        int i = atoi(spec.c_str());
+        return i < count ? i : -1;
+    }
+    for (int i = 0; i < count; ++i)
+        if (_stricmp(VariantName(list, i), spec.c_str()) == 0)
+            return i;
+    // The shortest name containing it: "duel" is Anakin_Duel rather than Anakin_NPC_Duel.
+    int found = -1;
+    size_t shortest = 0;
+    bool tie = false;
+    for (int i = 0; i < count; ++i) {
+        const std::string name = Lower(VariantName(list, i));
+        if (name.find(Lower(spec)) == std::string::npos)
+            continue;
+        if (found < 0 || name.size() < shortest) {
+            found = i;
+            shortest = name.size();
+            tie = false;
+        } else if (name.size() == shortest) {
+            tie = true;
+        }
+    }
+    return tie ? -1 : found;
+}
 
 // When a level starts, 0x2AB660 creates the player through kSpawnPlayer with the launch settings'
 // player (+0xAC, a string: the mission list's or the versus select's class, e.g. IAnakin); the
@@ -47,9 +117,52 @@ constexpr uint32_t kPlayerVariantSite = 0x000B1DE1;
 constexpr uint32_t kPlayerVariantContinue = 0x000B1DE8;
 constexpr uint8_t kPlayerVariantBytes[] = { 0x8B, 0x44, 0x24, 0x0C, 0x8B, 0x11, 0x50 };
 
-int __stdcall PlayerVariant(const void* player, int variant)
+int __stdcall PlayerVariant(void* player, int variant)
 {
-    return g_PlayerClass ? VariantOnDisc(player, variant) : variant;
+    if (!player)
+        return variant;
+    uint8_t*& list = *reinterpret_cast<uint8_t**>(static_cast<uint8_t*>(player) + kCharacterVariants);
+    int chosen = g_PlayerClass ? VariantOnDisc(player, variant) : variant;
+    if (!g_PlayerVariant.empty() && list) {
+        const int wanted = FindVariant(list, g_PlayerVariant);
+        if (wanted < 0)
+            LOG_WARN("Characters: no costume '%s'; the usual one instead", g_PlayerVariant.c_str());
+        else if (!g_PlayerMesh.empty() || MeshOnDisc(VariantMesh(list, wanted)))
+            chosen = wanted;
+        else
+            LOG_WARN("Characters: costume %s's model (%s) is not on the disc; the usual one instead",
+                VariantName(list, wanted), VariantMesh(list, wanted));
+    }
+    if (!g_PlayerMesh.empty()) {
+        // A name as given (SWROTS_PLAYER takes any): "folder\file" as the disc or mods\ has it.
+        std::string error;
+        const std::string mesh = ResolveMesh(g_PlayerMesh, error);
+        const std::string file = Lower("meshes\\chars\\" + mesh + ".msh");
+        if (mesh.empty() || (!DiscHasResource(file) && !HasLooseResource(file))) {
+            LOG_WARN("Characters: no mesh '%s' on the disc or under mods; the costume's own instead%s%s",
+                g_PlayerMesh.c_str(), error.empty() ? "" : ": ", error.c_str());
+            g_PlayerMesh.clear();
+        } else {
+            g_PlayerMesh = mesh;
+        }
+    }
+    if (!g_PlayerMesh.empty() && list) {
+        // The player's own copy of the list, with the mesh in its costume's record: other characters of
+        // the class (which share the game's list) keep theirs.
+        const int count = VariantCount(list);
+        const int slot = chosen >= 0 && chosen < count ? chosen : 0;
+        const size_t size = kVariantRecords + (count + 1) * kVariantRecordSize;
+        g_PlayerVariants.assign(list, list + size - kVariantRecordSize);
+        g_PlayerVariants.resize(size, 0); // the null record that ends it
+        *reinterpret_cast<const char**>(g_PlayerVariants.data() + kVariantRecords + slot * kVariantRecordSize + 4) =
+            g_PlayerMesh.c_str();
+        list = g_PlayerVariants.data();
+        chosen = slot;
+        LOG_INFO("Characters: the player's mesh is %s", g_PlayerMesh.c_str());
+    }
+    if (list && chosen >= 0 && chosen < VariantCount(list))
+        LOG_INFO("Characters: costume %s (%d)", VariantName(list, chosen), chosen);
+    return chosen;
 }
 
 __declspec(naked) void PlayerVariantStub()
@@ -196,8 +309,23 @@ void InstallCharacters()
     static bool environmentRead = false;
     char spec[128] = {};
     if (!environmentRead && GetEnvironmentVariableA("SWROTS_PLAYER", spec, sizeof(spec))) {
-        g_PlayerClassName = spec;
-        g_PlayerClass = g_PlayerClassName.c_str();
+        // "<class>[ <costume>][ mesh <mesh>]", as the console's player command; "-" keeps the level's class.
+        std::vector<std::string> words;
+        char* context = nullptr;
+        for (char* w = strtok_s(spec, " ", &context); w; w = strtok_s(nullptr, " ", &context))
+            words.push_back(w);
+        for (size_t i = 0; i < words.size(); ++i) {
+            if (i == 0) {
+                if (words[0] != "-") {
+                    g_PlayerClassName = words[0];
+                    g_PlayerClass = g_PlayerClassName.c_str();
+                }
+            } else if (_stricmp(words[i].c_str(), "mesh") == 0 && i + 1 < words.size()) {
+                g_PlayerMesh = words[++i]; // as given; resolved at the spawn (PlayerVariant)
+            } else {
+                g_PlayerVariant = words[i];
+            }
+        }
     }
     environmentRead = true;
     uint8_t* stub = AllocStub(16);
@@ -228,10 +356,122 @@ void InstallCharacters()
     }
 }
 
+const uint8_t* FindVariantList(const char* className)
+{
+    if (!className)
+        return nullptr;
+    // The list names the class without its "I" (IAnakin -> Anakin).
+    const char* wanted = (className[0] == 'I' || className[0] == 'i') && className[1] ? className + 1 : className;
+    const auto isText = [](uint32_t p) {
+        if (p < kRDataStart || p >= kRDataEnd)
+            return false;
+        const char* t = reinterpret_cast<const char*>(uintptr_t(p));
+        for (int i = 0; i < 80 && p + i < kRDataEnd; ++i) {
+            if (!t[i])
+                return i > 0;
+            if (t[i] < 0x20 || t[i] > 0x7E)
+                return false;
+        }
+        return false;
+    };
+    for (uint32_t a = kDataStart; a + kVariantRecords + kVariantRecordSize <= kDataEnd; a += 4) {
+        const uint32_t name = *reinterpret_cast<const uint32_t*>(uintptr_t(a));
+        if (!isText(name) || _stricmp(reinterpret_cast<const char*>(uintptr_t(name)), wanted) != 0)
+            continue;
+        const uint32_t first = *reinterpret_cast<const uint32_t*>(uintptr_t(a + kVariantRecords));
+        const uint32_t mesh = *reinterpret_cast<const uint32_t*>(uintptr_t(a + kVariantRecords + 4));
+        if (isText(first) && isText(mesh) && !std::strchr(reinterpret_cast<const char*>(uintptr_t(first)), '\\') &&
+            std::strchr(reinterpret_cast<const char*>(uintptr_t(mesh)), '\\'))
+            return reinterpret_cast<const uint8_t*>(uintptr_t(a));
+    }
+    return nullptr;
+}
+
+int ClassVariantIndex(const char* className, const std::string& spec)
+{
+    return FindVariant(FindVariantList(className), spec);
+}
+
+std::vector<Variant> ClassVariants(const char* className)
+{
+    std::vector<Variant> out;
+    const uint8_t* list = FindVariantList(className);
+    for (int i = 0, n = VariantCount(list); i < n; ++i)
+        out.push_back({ VariantName(list, i), VariantMesh(list, i), MeshOnDisc(VariantMesh(list, i)) });
+    return out;
+}
+
+std::vector<std::string> CharacterMeshes(const std::string& filter)
+{
+    std::vector<std::string> out;
+    const std::string want = Lower(filter);
+    const std::string prefix = "meshes\\chars\\";
+    for (const std::string& name : DiscResourceNames(prefix)) {
+        if (name.size() < prefix.size() + 4 || name.compare(name.size() - 4, 4, ".msh") != 0)
+            continue;
+        std::string mesh = name.substr(prefix.size(), name.size() - prefix.size() - 4);
+        if (mesh.find('\\') == std::string::npos || (!want.empty() && mesh.find(want) == std::string::npos))
+            continue;
+        out.push_back(mesh);
+    }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
+std::string ResolveMesh(const std::string& text, std::string& error)
+{
+    std::string want = Lower(text);
+    std::replace(want.begin(), want.end(), '/', '\\');
+    const std::string prefix = "meshes\\chars\\";
+    if (want.rfind(prefix, 0) == 0)
+        want = want.substr(prefix.size());
+    if (want.size() > 4 && want.compare(want.size() - 4, 4, ".msh") == 0)
+        want.resize(want.size() - 4);
+    std::vector<std::string> matches;
+    for (const std::string& mesh : CharacterMeshes("")) {
+        const size_t slash = mesh.find('\\');
+        if (mesh == want || mesh.substr(0, slash) == want || mesh.substr(slash + 1) == want)
+            matches.push_back(mesh);
+    }
+    if (matches.size() == 1)
+        return matches[0];
+    if (matches.size() > 1) {
+        error = "several meshes match: " + matches[0] + ", " + matches[1] + (matches.size() > 2 ? ", ..." : "");
+        return "";
+    }
+    if (want.find('\\') != std::string::npos)
+        return want; // not on the disc: a loose copy under mods may provide it
+    error = "no character mesh '" + text + "' on the disc (see meshes)";
+    return "";
+}
+
+void SetPlayerVariant(const std::string& variant)
+{
+    g_PlayerVariant = variant;
+}
+
+void SetPlayerMesh(const std::string& mesh)
+{
+    g_PlayerMesh = mesh;
+}
+
+std::string PlayerVariantChoice()
+{
+    return g_PlayerVariant;
+}
+
+std::string PlayerMesh()
+{
+    return g_PlayerMesh;
+}
+
 bool SetPlayerClass(const char* className)
 {
     if (!className) {
         g_PlayerClass = nullptr;
+        g_PlayerVariant.clear();
+        g_PlayerMesh.clear();
         return true;
     }
     const char* name = RegisteredClassName(className);
