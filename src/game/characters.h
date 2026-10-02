@@ -58,6 +58,13 @@ int ClassVariantIndex(const char* className, const std::string& spec);
 // as the player whatever body it is given.
 bool ClassHasBody(const char* className);
 
+// Spawns a character of a class into the running level, in front of the player and facing it, in a
+// costume (empty: its usual one), texture set and body (empty: the costume's) as for the player. It
+// takes its class's own AI and teams. False with `error` set when it cannot (no mission running, an
+// unknown or cut class).
+bool SpawnCharacter(const char* className, const std::string& costume, const std::string& skin,
+    const std::string& mesh, std::string& error);
+
 // The player's saber colour (r, g, b, 0-1), its own only: other characters keep theirs, and power-ups
 // no longer change it. Applies at once to a running level's player, and from then on; null goes back
 // to the game's colours from the next level start. The pure colours (1,0,0), (0,1,0), (0,0,1),

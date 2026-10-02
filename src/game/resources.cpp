@@ -692,23 +692,80 @@ bool ReadHostFile(const std::wstring& path, std::vector<uint8_t>& data)
 using OpenManualFn = EngineObject*(__fastcall*)(uint8_t* packer, void* edx, EnginePath* path);
 OpenManualFn g_OriginalOpenManual = nullptr;
 
+// A manual file from a loose copy (mods\, or a binding the engine rebuilt into cache\disc\), else
+// another PAK's copy (not `index`'s), through a memory file; null when there is none.
+EngineObject* OpenManualCopy(const char* full, const std::string& wanted, const PakIndex* index)
+{
+    std::vector<uint8_t> data;
+    std::wstring from;
+    if (HasLooseCopy(full) && ReadHostFile(LooseHostPath(full), data)) {
+        from = LooseHostPath(full);
+    } else {
+        const PakIndex* owner = nullptr;
+        const PakIndex::Entry* entry = FindElsewhere(index, wanted, owner);
+        if (!entry || entry->rawSize == 0 || !owner->ReadData(*entry, data))
+            return nullptr;
+        from = owner->Path();
+    }
+    EngineObject* file = FileMemoryCtor(EngineAlloc()(kFileMemorySize), nullptr);
+    VirtualAt<FileMemoryOpenFn>(file, kFileMemoryOpenSlot)(file, nullptr, data.data(), uint32_t(data.size()));
+    LOG_INFO("PAK: %s (manual) loaded from %ls", wanted.c_str(), from.c_str());
+    return PackReaderCtor(EngineAlloc()(0x24), nullptr, file, 0); // kept: the caller does not free it
+}
+
+// After a manual read, the scene (+0x8A0 == 2, 0x4B0D5) has the packer put its stream back where it
+// was (0x51E40: thiscall, through the stream reader at +4). Once the level has loaded, the packer is
+// no longer streaming (+0x1D0 is 0) and that reader is gone, but +4 still points at it: a character
+// spawned then crashed there. Without a stream there is nothing to put back. Entry:
+//   push esi / mov esi, ecx / mov eax, [esi + 4]   (6 bytes)
+constexpr uint32_t kPackerEndManual = 0x00051E40;
+constexpr uint32_t kPackerEndManualContinue = 0x00051E46;
+constexpr uint8_t kPackerEndManualBytes[] = { 0x56, 0x8B, 0xF1, 0x8B, 0x46, 0x04 };
+
+__declspec(naked) void PackerEndManualGuard()
+{
+    __asm {
+        cmp dword ptr [ecx + 0x1D0], 2
+        jne done
+        push esi
+        mov esi, ecx
+        mov eax, dword ptr [esi + 4]
+        push kPackerEndManualContinue
+        ret
+    done:
+        ret
+    }
+}
+
 EngineObject* __fastcall OpenManualHook(uint8_t* packer, void* edx, EnginePath* path)
 {
     auto* reader = *reinterpret_cast<EngineObject**>(packer + 4);
     char full[512] = {};
     if (path)
         BuildPath(path, nullptr, full, 0);
-    if (!path || !reader || *reinterpret_cast<uint32_t*>(packer + 0x1D0) != 2 || _strnicmp(full, "d:\\", 3) != 0)
+    if (!path || _strnicmp(full, "d:\\", 3) != 0)
         return g_OriginalOpenManual(packer, edx, path);
+    std::string wanted = full + 3;
+    for (char& c : wanted)
+        c = char(tolower(static_cast<unsigned char>(c)));
+    if (!reader || *reinterpret_cast<uint32_t*>(packer + 0x1D0) != 2) {
+        // Not streaming (a character spawned once the level has loaded): the engine opens the disc file,
+        // which for a PAK-only binding does not exist (its file reader then crashes, 0x232190). Those
+        // are served from a copy like the ones the stream lacks.
+        std::wstring onDisc = g_GameData;
+        for (const char* c = full + 2; *c; ++c)
+            onDisc += wchar_t(static_cast<unsigned char>(*c));
+        if (GetFileAttributesW(onDisc.c_str()) != INVALID_FILE_ATTRIBUTES)
+            return g_OriginalOpenManual(packer, edx, path);
+        if (EngineObject* copy = OpenManualCopy(full, wanted, g_LevelIndex))
+            return copy;
+        return g_OriginalOpenManual(packer, edx, path);
+    }
     char pakPath[512] = {};
     BuildPath(reinterpret_cast<EnginePath*>(packer + 0x174), nullptr, pakPath, 0);
     const PakIndex* index = IndexForPak(pakPath);
     if (!index)
         return g_OriginalOpenManual(packer, edx, path);
-
-    std::string wanted = full + 3;
-    for (char& c : wanted)
-        c = char(tolower(static_cast<unsigned char>(c)));
     uint32_t pos = VirtualAt<uint32_t(__fastcall*)(EngineObject*, void*)>(reader, 0x44)(reader, nullptr);
     const PakIndex::Entry* next = index->AtOffset(pos);
     if (next && next->name == wanted)
@@ -720,21 +777,9 @@ EngineObject* __fastcall OpenManualHook(uint8_t* packer, void* edx, EnginePath* 
         }
         return g_OriginalOpenManual(packer, edx, path);
     }
-    std::vector<uint8_t> data;
-    std::wstring from;
-    if (HasLooseCopy(full) && ReadHostFile(LooseHostPath(full), data)) {
-        from = LooseHostPath(full);
-    } else {
-        const PakIndex* owner = nullptr;
-        const PakIndex::Entry* entry = FindElsewhere(index, wanted, owner);
-        if (!entry || entry->rawSize == 0 || !owner->ReadData(*entry, data))
-            return g_OriginalOpenManual(packer, edx, path);
-        from = owner->Path();
-    }
-    EngineObject* file = FileMemoryCtor(EngineAlloc()(kFileMemorySize), nullptr);
-    VirtualAt<FileMemoryOpenFn>(file, kFileMemoryOpenSlot)(file, nullptr, data.data(), uint32_t(data.size()));
-    LOG_INFO("PAK: %s (manual) loaded from %ls", wanted.c_str(), from.c_str());
-    return PackReaderCtor(EngineAlloc()(0x24), nullptr, file, 0); // kept: the caller does not free it
+    if (EngineObject* copy = OpenManualCopy(full, wanted, index))
+        return copy;
+    return g_OriginalOpenManual(packer, edx, path);
 }
 
 // --- Declaring resources a level's PAK does not list ---------------------------------------------
@@ -1357,6 +1402,13 @@ void InstallResourceHooks(const std::wstring& gameData, const std::wstring& mods
     g_OriginalLoadEventTable = reinterpret_cast<LoadEventTableFn>(eventStub);
     PatchJump(kLoadEventTable, reinterpret_cast<const void*>(&LoadEventTableHook));
     PatchJump(kPackerOpenManual, reinterpret_cast<const void*>(&OpenManualHook));
+    if (std::memcmp(reinterpret_cast<const void*>(uintptr_t(kPackerEndManual)), kPackerEndManualBytes,
+            sizeof(kPackerEndManualBytes)) == 0) {
+        PatchJump(kPackerEndManual, reinterpret_cast<const void*>(&PackerEndManualGuard));
+        PatchNop(kPackerEndManual + 5, sizeof(kPackerEndManualBytes) - 5);
+    } else {
+        LOG_WARN("Resources: unexpected code at the manual file end (0x51E40); not guarded");
+    }
 }
 
 } // namespace swrots::game

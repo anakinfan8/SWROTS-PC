@@ -8,6 +8,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <cstring>
+#include <list>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -31,7 +32,6 @@ std::string g_PlayerMesh;    // a mesh under meshes/chars ("folder\\file"); empt
 std::string g_PlayerSkin;    // a texture set: its number or name; empty for the costume's usual one
 bool g_SaberColorSet = false; // the player's own saber colour (see ApplySaberColor)
 float g_SaberColor[3] = {};
-std::vector<uint8_t> g_PlayerVariants; // the player's own copy of its class's costumes, for a mesh
 
 std::string Lower(std::string text)
 {
@@ -261,6 +261,109 @@ void ApplySaberColor()
     }
 }
 
+// A character's own copy of its class's costume list, with another body in its costume's record:
+// others of the class (which share the game's list) keep theirs. Kept for as long as the character
+// may load its body (the level; cleared at every boot).
+struct OwnedList {
+    std::string mesh;
+    std::vector<uint8_t> list;
+};
+
+// Dresses a character being created (before its ICharacter::Init loads the body): the costume
+// `costume` (a name, a part of one or a number; empty for `chosen`), texture set `skin` and body
+// `mesh` (resolved in place: emptied when not usable). `who` names it in the log. Returns the costume
+// index to use.
+int Dress(uint8_t* character, int chosen, const std::string& costume, const std::string& skin, std::string& mesh,
+    OwnedList& owned, const char* who)
+{
+    uint8_t*& list = *reinterpret_cast<uint8_t**>(character + kCharacterVariants);
+    if (!costume.empty() && list) {
+        const int wanted = FindVariant(list, costume);
+        if (wanted < 0)
+            LOG_WARN("Characters: no costume '%s'; the usual one instead", costume.c_str());
+        else if (!mesh.empty() || MeshOnDisc(VariantMesh(list, wanted)))
+            chosen = wanted;
+        else
+            LOG_WARN("Characters: costume %s's model (%s) is not on the disc; the usual one instead",
+                VariantName(list, wanted), VariantMesh(list, wanted));
+    }
+    if (!mesh.empty()) {
+        // A name as given (SWROTS_PLAYER takes any): "folder\file" as the disc or mods\ has it.
+        std::string error;
+        const std::string resolved = ResolveMesh(mesh, error);
+        const std::string file = Lower("meshes\\chars\\" + resolved + ".msh");
+        if (resolved.empty() || (!DiscHasResource(file) && !HasLooseResource(file))) {
+            LOG_WARN("Characters: mesh '%s' not used (%s); the costume's own instead", mesh.c_str(),
+                error.empty() ? "not on the disc or under mods" : error.c_str());
+            mesh.clear();
+        } else {
+            mesh = resolved;
+        }
+    }
+    if (!mesh.empty() && list) {
+        const int count = VariantCount(list);
+        const int slot = chosen >= 0 && chosen < count ? chosen : 0;
+        const size_t size = kVariantRecords + (count + 1) * kVariantRecordSize;
+        owned.mesh = mesh;
+        owned.list.assign(list, list + size - kVariantRecordSize);
+        owned.list.resize(size, 0); // the null record that ends it
+        *reinterpret_cast<const char**>(owned.list.data() + kVariantRecords + slot * kVariantRecordSize + 4) =
+            owned.mesh.c_str();
+        list = owned.list.data();
+        chosen = slot;
+        LOG_INFO("Characters: %s's mesh is %s", who, mesh.c_str());
+    }
+    if (list && chosen >= 0 && chosen < VariantCount(list))
+        LOG_INFO("Characters: %s's costume %s (%d)", who, VariantName(list, chosen), chosen);
+    if (!skin.empty() && list) {
+        const int set = FindTextureSet(list, skin);
+        if (set < 0) {
+            LOG_WARN("Characters: no texture set '%s'; the usual textures instead", skin.c_str());
+        } else {
+            *reinterpret_cast<int*>(character + kCharacterTextureSet) = set;
+            if (set > 0) {
+                // The set's textures from wherever the disc has them: those in the costume mesh's folder
+                // ending with the suffix (e.g. meshes\chars\clonetrooper\hordetrooper_var01.stx).
+                const std::string suffix = Lower(TextureSets(list)[set - 1]) + ".stx";
+                const int slot = chosen >= 0 && chosen < VariantCount(list) ? chosen : 0;
+                const std::string body = Lower(VariantMesh(list, slot));
+                const std::string folder = "meshes\\chars\\" + body.substr(0, body.find('\\') + 1);
+                int declared = 0;
+                for (const std::string& name : DiscResourceNames(folder))
+                    if (name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0 &&
+                        DeclareDiscResource(name))
+                        ++declared;
+                LOG_INFO("Characters: %s's texture set %s (%d)%s", who, TextureSets(list)[set - 1], set,
+                    declared ? ", textures from other levels" : "");
+            }
+        }
+    }
+    return chosen;
+}
+
+OwnedList g_PlayerList;
+
+// Spawning a character into the running level, the way the game's own AI respawner does (AI.cpp,
+// 0x19C1E0): create the class's object (the class registry's lookup 0xE9B60, then its create 0xE2350:
+// class info vfunc +0x30), clear +0xC's 0x08000000, set the costume (+0x1E8), and hand it to the spawn
+// (0xA2DE0: cdecl bool (object, owner or null, const float transform[16], 1)), which places it
+// (object vfunc +0x1F4) and adds it to the level's instance manager, which initializes it (loading
+// what the level lacks through the port's resource hooks). A character's transform is at +0x150:
+// rows right, up, forward, position (as the dev item spawner at 0x2DF600 builds one in front of the
+// player). The spawned character takes its class's own AI and teams.
+constexpr uint32_t kClassLookup = 0x000E9B60;    // cdecl (const char* class) -> class info
+constexpr uint32_t kCreateInstance = 0x000E2350; // cdecl (class info) -> object
+constexpr uint32_t kSpawnInstance = 0x000A2DE0;  // cdecl bool (object, owner, const float m[16], int 1)
+constexpr uint32_t kInstanceFlags = 0x0C;
+constexpr uint32_t kInstanceInactive = 0x08000000;
+constexpr uint32_t kCharacterCostume = 0x1E8;
+constexpr uint32_t kCharacterTransform = 0x150;
+constexpr uint32_t kActivate = 0xB4;           // object vfunc, thiscall ()
+constexpr float kSpawnDistance = 120.0f; // in front of the player (a character is about 70 tall)
+
+std::list<OwnedList> g_SpawnLists; // the spawned characters' own costume lists (this boot)
+int g_Spawned = 0;
+
 int __stdcall PlayerVariant(void* player, int variant)
 {
     if (!player)
@@ -269,71 +372,8 @@ int __stdcall PlayerVariant(void* player, int variant)
     g_PlayerVtable = *reinterpret_cast<uint32_t*>(player);
     if (g_SaberColorSet && HasSaberColor(g_Player)) // before it equips its saber (ICharacter::Init)
         *reinterpret_cast<const float**>(g_Player + kCharacterSaberColor) = g_SaberColor;
-    uint8_t*& list = *reinterpret_cast<uint8_t**>(static_cast<uint8_t*>(player) + kCharacterVariants);
-    int chosen = g_PlayerClass ? VariantOnDisc(player, variant) : variant;
-    if (!g_PlayerVariant.empty() && list) {
-        const int wanted = FindVariant(list, g_PlayerVariant);
-        if (wanted < 0)
-            LOG_WARN("Characters: no costume '%s'; the usual one instead", g_PlayerVariant.c_str());
-        else if (!g_PlayerMesh.empty() || MeshOnDisc(VariantMesh(list, wanted)))
-            chosen = wanted;
-        else
-            LOG_WARN("Characters: costume %s's model (%s) is not on the disc; the usual one instead",
-                VariantName(list, wanted), VariantMesh(list, wanted));
-    }
-    if (!g_PlayerMesh.empty()) {
-        // A name as given (SWROTS_PLAYER takes any): "folder\file" as the disc or mods\ has it.
-        std::string error;
-        const std::string mesh = ResolveMesh(g_PlayerMesh, error);
-        const std::string file = Lower("meshes\\chars\\" + mesh + ".msh");
-        if (mesh.empty() || (!DiscHasResource(file) && !HasLooseResource(file))) {
-            LOG_WARN("Characters: mesh '%s' not used (%s); the costume's own instead", g_PlayerMesh.c_str(),
-                error.empty() ? "not on the disc or under mods" : error.c_str());
-            g_PlayerMesh.clear();
-        } else {
-            g_PlayerMesh = mesh;
-        }
-    }
-    if (!g_PlayerMesh.empty() && list) {
-        // The player's own copy of the list, with the mesh in its costume's record: other characters of
-        // the class (which share the game's list) keep theirs.
-        const int count = VariantCount(list);
-        const int slot = chosen >= 0 && chosen < count ? chosen : 0;
-        const size_t size = kVariantRecords + (count + 1) * kVariantRecordSize;
-        g_PlayerVariants.assign(list, list + size - kVariantRecordSize);
-        g_PlayerVariants.resize(size, 0); // the null record that ends it
-        *reinterpret_cast<const char**>(g_PlayerVariants.data() + kVariantRecords + slot * kVariantRecordSize + 4) =
-            g_PlayerMesh.c_str();
-        list = g_PlayerVariants.data();
-        chosen = slot;
-        LOG_INFO("Characters: the player's mesh is %s", g_PlayerMesh.c_str());
-    }
-    if (list && chosen >= 0 && chosen < VariantCount(list))
-        LOG_INFO("Characters: costume %s (%d)", VariantName(list, chosen), chosen);
-    if (!g_PlayerSkin.empty() && list) {
-        const int set = FindTextureSet(list, g_PlayerSkin);
-        if (set < 0) {
-            LOG_WARN("Characters: no texture set '%s'; the usual textures instead", g_PlayerSkin.c_str());
-        } else {
-            *reinterpret_cast<int*>(static_cast<uint8_t*>(player) + kCharacterTextureSet) = set;
-            if (set > 0) {
-                // The set's textures from wherever the disc has them: those in the costume mesh's folder
-                // ending with the suffix (e.g. meshes\chars\clonetrooper\hordetrooper_var01.stx).
-                const std::string suffix = Lower(TextureSets(list)[set - 1]) + ".stx";
-                const int slot = chosen >= 0 && chosen < VariantCount(list) ? chosen : 0;
-                const std::string mesh = Lower(VariantMesh(list, slot));
-                const std::string folder = "meshes\\chars\\" + mesh.substr(0, mesh.find('\\') + 1);
-                int declared = 0;
-                for (const std::string& name : DiscResourceNames(folder))
-                    if (name.size() > suffix.size() && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0 &&
-                        DeclareDiscResource(name))
-                        ++declared;
-                LOG_INFO("Characters: texture set %s (%d)%s", TextureSets(list)[set - 1], set,
-                    declared ? ", textures from other levels" : "");
-            }
-        }
-    }
-    return chosen;
+    const int chosen = g_PlayerClass ? VariantOnDisc(player, variant) : variant;
+    return Dress(g_Player, chosen, g_PlayerVariant, g_PlayerSkin, g_PlayerMesh, g_PlayerList, "the player");
 }
 
 __declspec(naked) void PlayerVariantStub()
@@ -526,6 +566,7 @@ void InstallCharacters()
     environmentRead = true;
     g_PlayerSpawned = false;
     g_Player = nullptr;
+    g_SpawnLists.clear(); // the level's characters went with the reboot
     kernel::SetBeforeRelaunch(&HandChoiceToRelaunch);
     uint8_t* stub = AllocStub(16);
     std::memcpy(stub, reinterpret_cast<const void*>(uintptr_t(kSpawnPlayer)), 5);
@@ -746,6 +787,58 @@ int ClassTextureSetIndex(const char* className, const std::string& spec)
 {
     const uint8_t* list = FindVariantList(className);
     return list ? FindTextureSet(list, spec) : -1;
+}
+
+bool SpawnCharacter(const char* className, const std::string& costume, const std::string& skin,
+    const std::string& mesh, std::string& error)
+{
+    if (!PlayerAlive()) {
+        error = "no mission is running";
+        return false;
+    }
+    const char* name = RegisteredClassName(className);
+    if (!name) {
+        error = std::string(className) + ": not a class the game knows";
+        return false;
+    }
+    if (!ClassHasBody(name)) {
+        error = std::string(name) + " was cut from the game (none of its costumes is on the disc)";
+        return false;
+    }
+    void* info = reinterpret_cast<void*(__cdecl*)(const char*)>(uintptr_t(kClassLookup))(name);
+    auto* object = info ? reinterpret_cast<uint8_t*(__cdecl*)(void*)>(uintptr_t(kCreateInstance))(info) : nullptr;
+    if (!object) {
+        error = std::string(name) + ": the game could not create it";
+        return false;
+    }
+    *reinterpret_cast<uint32_t*>(object + kInstanceFlags) &= ~kInstanceInactive;
+    char who[96];
+    sprintf_s(who, "spawned %s #%d", name, ++g_Spawned);
+    g_SpawnLists.emplace_back();
+    std::string body = mesh;
+    const int chosen = Dress(object, VariantOnDisc(object, 0), costume, skin, body, g_SpawnLists.back(), who);
+    *reinterpret_cast<int*>(object + kCharacterCostume) = chosen;
+
+    // In front of the player, facing it: right and forward turned round.
+    float m[16];
+    std::memcpy(m, g_Player + kCharacterTransform, sizeof(m));
+    for (int i = 0; i < 3; ++i)
+        m[12 + i] += m[8 + i] * kSpawnDistance;
+    for (int i = 0; i < 3; ++i) {
+        m[i] = -m[i];
+        m[8 + i] = -m[8 + i];
+    }
+    const bool spawned = reinterpret_cast<bool(__cdecl*)(uint8_t*, void*, const float*, int)>(
+        uintptr_t(kSpawnInstance))(object, nullptr, m, 1);
+    if (!spawned) {
+        error = std::string(name) + ": the game refused to spawn it";
+        return false;
+    }
+    // Then activated, as the dev item spawner (0x2DF849) and the player's creation (0xB1D60) do.
+    reinterpret_cast<void(__fastcall*)(uint8_t*, void*)>((*reinterpret_cast<void* const* const*>(object))[kActivate / 4])(
+        object, nullptr);
+    LOG_INFO("Characters: %s at %.0f %.0f %.0f", who, m[12], m[13], m[14]);
+    return true;
 }
 
 void SetPlayerSaberColor(const float* rgb)

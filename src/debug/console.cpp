@@ -236,6 +236,7 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  player [<class>|- [<costume>] [skin <set>] [mesh <mesh>|off]|off]");
     Print(LineKind::Output, "                           play as a character, costume or mesh (- = the level's own class)");
     Print(LineKind::Output, "  saber [red|green|blue|purple|<r> <g> <b>|off]  the player's saber colour, its own only");
+    Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>] [mesh <mesh>]  a character in front of the player");
     Print(LineKind::Output, "  restart                  restart the mission");
     Print(LineKind::Output, "  autorestart [on|off]     whether player changes restart the mission at once");
     Print(LineKind::Output, "  variants <class>         a character class's costumes");
@@ -474,6 +475,44 @@ void Saber(const std::vector<std::string>& words)
         Print(LineKind::Output, "  saber: the game's colours");
 }
 
+// spawn <class> [<costume>] [skin <set>] [mesh <mesh>]
+void Spawn(const std::vector<std::string>& words)
+{
+    std::string costume, skin, mesh;
+    std::vector<std::string> rest;
+    for (size_t i = 1; i < words.size(); ++i) {
+        if ((_stricmp(words[i].c_str(), "skin") == 0 || _stricmp(words[i].c_str(), "mesh") == 0) && i + 1 < words.size())
+            (_stricmp(words[i].c_str(), "skin") == 0 ? skin : mesh) = words[++i];
+        else
+            rest.push_back(words[i]);
+    }
+    if (rest.empty() || rest.size() > 2) {
+        Print(LineKind::Error, "spawn <class> [<costume>] [skin <set>] [mesh <mesh>]");
+        return;
+    }
+    const char* name = game::RegisteredClassName(rest[0].c_str());
+    if (name && rest.size() == 2 && game::FindVariantList(name) && game::ClassVariantIndex(name, rest[1]) < 0) {
+        Print(LineKind::Error, "%s has no costume '%s' (see variants %s)", name, rest[1].c_str(), name);
+        return;
+    }
+    if (name && !skin.empty() && game::ClassTextureSetIndex(name, skin) < 0) {
+        Print(LineKind::Error, "%s has no texture set '%s' (see variants %s)", name, skin.c_str(), name);
+        return;
+    }
+    if (!mesh.empty()) {
+        std::string error;
+        if (game::ResolveMesh(mesh, error).empty()) {
+            Print(LineKind::Error, "%s", error.c_str());
+            return;
+        }
+    }
+    std::string error;
+    if (game::SpawnCharacter(rest[0].c_str(), rest.size() == 2 ? rest[1] : "", skin, mesh, error))
+        Print(LineKind::Output, "  spawned %s", name);
+    else
+        Print(LineKind::Error, "%s", error.c_str());
+}
+
 void AutoRestart(const std::vector<std::string>& words)
 {
     if (words.size() == 2 && (_stricmp(words[1].c_str(), "on") == 0 || _stricmp(words[1].c_str(), "off") == 0))
@@ -568,7 +607,7 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
     if (command != "help" && command != "listvars" && command != "get" && command != "set" && command != "toggle" &&
         command != "duelist" && command != "player" && command != "variants" && command != "meshes" &&
         command != "restart" && command != "autorestart" && command != "unlockprofile" &&
-        command != "freecam" && command != "saber")
+        command != "freecam" && command != "saber" && command != "spawn")
         return false;
     Print(LineKind::Output, "> %s", line.c_str());
     if (command == "duelist") {
@@ -587,6 +626,8 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         FreeCamera(words);
     } else if (command == "saber") {
         Saber(words);
+    } else if (command == "spawn") {
+        Spawn(words);
     } else if (command == "unlockprofile") {
         // The game's own developer command (TVaderGameOptions), not registered in the retail build.
         reinterpret_cast<void(__cdecl*)()>(uintptr_t(game::kUnlockProfile))();
@@ -656,7 +697,7 @@ void RunQueuedConsoleCommands()
             // and gone while a level loads).
             const std::vector<std::string> words = Words(line);
             static const char* const kStandalone[] = { "player", "variants", "meshes", "restart", "autorestart",
-                "duelist", "freecam", "saber", "clear", "cls" };
+                "duelist", "freecam", "saber", "spawn", "clear", "cls" };
             const bool standalone = !words.empty() && std::any_of(std::begin(kStandalone), std::end(kStandalone),
                 [&](const char* c) { return _stricmp(words[0].c_str(), c) == 0; });
             if (standalone) {

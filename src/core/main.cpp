@@ -8,6 +8,7 @@
 #include <cstring>
 #include <exception>
 #include <string>
+#include <thread>
 
 #include "audio/audio.h"
 #include "core/crash.h"
@@ -241,6 +242,30 @@ static void Run(void* reserveBase, unsigned reserveSize, void* contiguousBase, u
         // Not passed on: a restart that falls back to a new process must not start the test again.
         SetEnvironmentVariableW(L"SWROTS_REBOOT_EVERY", nullptr);
         kernel::StartRebootTest(unsigned(_wtoi(rebootEvery)));
+    }
+    char commands[512] = {};
+    if (GetEnvironmentVariableA("SWROTS_COMMANDS", commands, sizeof(commands))) {
+        // Development aid: "<seconds>:<console command>;..." run that long after the start, for unattended
+        // tests of live actions (spawn, saber). Not passed on to a relaunched process.
+        SetEnvironmentVariableW(L"SWROTS_COMMANDS", nullptr);
+        std::thread([script = std::string(commands)] {
+            const auto start = GetTickCount64();
+            size_t at = 0;
+            while (at < script.size()) {
+                size_t end = script.find(';', at);
+                if (end == std::string::npos)
+                    end = script.size();
+                const std::string item = script.substr(at, end - at);
+                at = end + 1;
+                const size_t colon = item.find(':');
+                if (colon == std::string::npos)
+                    continue;
+                const ULONGLONG due = start + ULONGLONG(atof(item.substr(0, colon).c_str()) * 1000);
+                while (GetTickCount64() < due)
+                    Sleep(50);
+                debug::QueueConsoleCommand(item.substr(colon + 1));
+            }
+        }).detach();
     }
     xapi::EnableSdkTrace(GetPrivateProfileIntW(L"Debug", L"TraceSdk", 0, ini.c_str()) != 0);
     g_Boot.paths = paths;
