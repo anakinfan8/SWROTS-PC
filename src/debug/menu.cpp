@@ -223,6 +223,7 @@ struct CharacterPicks {
 };
 CharacterPicks g_Picks;
 std::vector<std::string> g_Classes; // cached: the registry does not change once filled
+std::vector<bool> g_ClassBodies;      // per class: a costume of it is on the disc
 bool g_ClassesAll = false;
 std::vector<std::string> g_Meshes;
 
@@ -267,6 +268,9 @@ void CharactersTab()
     if (g_Classes.empty() || g_ClassesAll != picks.allClasses) {
         g_Classes = game::CharacterClasses(picks.allClasses);
         g_ClassesAll = picks.allClasses;
+        g_ClassBodies.clear();
+        for (const std::string& name : g_Classes)
+            g_ClassBodies.push_back(game::ClassHasBody(name.c_str()));
     }
     if (g_Meshes.empty())
         g_Meshes = game::CharacterMeshes("");
@@ -304,9 +308,17 @@ void CharactersTab()
                 picks.costume.clear();
                 picks.skin.clear();
             }
-            for (const std::string& name : g_Classes) {
+            for (size_t c = 0; c < g_Classes.size(); ++c) {
+                const std::string& name = g_Classes[c];
                 if (!Contains(name, picks.classFilter))
                     continue;
+                // A class whose costumes were all cut was cut from the game: listed, but not playable.
+                if (!g_ClassBodies[c]) {
+                    ImGui::BeginDisabled();
+                    ImGui::Selectable((name + "  (cut)").c_str(), false);
+                    ImGui::EndDisabled();
+                    continue;
+                }
                 if (ImGui::Selectable(name.c_str(), _stricmp(name.c_str(), picks.className.c_str()) == 0) &&
                     picks.className != name) {
                     picks.className = name;

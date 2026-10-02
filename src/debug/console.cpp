@@ -420,6 +420,11 @@ void Player(const std::vector<std::string>& words)
             Print(LineKind::Error, "%s has no texture set '%s' (see variants %s)", name, skin.c_str(), name);
             return;
         }
+        if (!game::ClassHasBody(name)) {
+            Print(LineKind::Error, "%s was cut from the game: none of its costumes is on the disc (see variants %s), "
+                "and it crashes the game as the player", name, name);
+            return;
+        }
         game::SetPlayerClass(name);
         game::SetPlayerVariant(variant);
         game::SetPlayerSkin(skin);

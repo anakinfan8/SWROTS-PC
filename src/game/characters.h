@@ -53,6 +53,11 @@ std::vector<Variant> ClassVariants(const char* className);
 // A class's costume by number, name or a unique part of its name; -1 when none (or several) match.
 int ClassVariantIndex(const char* className, const std::string& spec);
 
+// False for a class none of whose costumes' models is on the disc: a character cut from the game
+// (Commander Cody: only his portraits are left, not his definition or moves), which crashes the game
+// as the player whatever body it is given.
+bool ClassHasBody(const char* className);
+
 // The game's costume list of a class (its name without the leading I), or null.
 const uint8_t* FindVariantList(const char* className);
 

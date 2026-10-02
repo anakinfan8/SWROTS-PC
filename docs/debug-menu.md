@@ -100,7 +100,9 @@ costumes; the game knows more (`player` refuses names it does not know). Charact
 not contain are loaded from other levels' PAKs, like versus fighters (see
 [how loading works](modding/how-loading-works.md#what-the-port-changes)). Missions may expect their
 own character in cutscenes and scripted moments, and some classes were never made to be played:
-they may lack moves, or not respond to every control.
+they may lack moves, or not respond to every control. A class with no body on the disc is refused:
+`ICommanderCody` (only his portraits are left; his model, definition and moves were cut, and he
+crashes the game whatever body he wears) and `IPoggle` (a static model, no skeleton).
 
 **Costumes.** Each class has a list of costumes (the game's "Mesh Choice"); `variants <class>` lists
 them by number and name:
@@ -186,7 +188,8 @@ Not everything works: the Xbox release removed a lot of the developer-only code,
 
 The `player` command with lists, for picking a character without typing names.
 
-- **Class**: the classes that have costumes, with a filter box. *(each level's own)* keeps each
+- **Class**: the classes that have costumes, with a filter box; greyed out *(cut)* ones cannot be
+  played (see above). *(each level's own)* keeps each
   level's own character. *All classes* lists every class the game registers; most of those are not
   characters (props, weapons, effects).
 - **Costume**: the picked class's costumes, numbered as in `variants`; greyed out ones were cut and

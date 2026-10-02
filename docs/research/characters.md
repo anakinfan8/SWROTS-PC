@@ -67,7 +67,10 @@ Some lists name costumes whose models are not on the disc (cut during developmen
 `Emperor`, `Luke`, `CommanderCody` (`clonecomm`), `Obiwan_Dirty` and `Obiwan_NPC_Dirty`, `PadwMale`,
 `Grievous_shell`, and the battle droid's plain `BattleDroid` (its levels use `hordeBattleDroid`). The
 port never picks those: a class whose chosen or usual costume is missing gets the first one that is
-on the disc (`VariantOnDisc`).
+on the disc (`VariantOnDisc`). A class with no body at all (a costume whose mesh is on the disc
+with its binding) is refused: `ICommanderCody`, whose only costume is the cut `clonecomm` and of
+whom the disc keeps only the HUD portrait and versus bust (no definition, tables or animations; with
+another body his state code faults at 0x616D1), and `IPoggle`, whose model is static.
 
 Costumes cover the class's looks across the story, and also NPC copies of the same bodies
 (`Anakin_NPC_Duel`); `player` matches a costume by number, name, or the shortest name containing

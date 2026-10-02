@@ -386,8 +386,24 @@ int VariantOnDisc(const void* character, int preferred)
     if (first < 0 || first == preferred)
         return preferred;
     const char* name = *reinterpret_cast<const char* const*>(list + 0x2C + first * 20);
-    LOG_INFO("Characters: variant %s (%d) instead of %d, whose model is not on the disc", name, first, preferred);
+    if (preferred >= VariantCount(list))
+        LOG_INFO("Characters: costume %s (%d): the class has no costume %d (the level's)", name, first, preferred);
+    else
+        LOG_INFO("Characters: costume %s (%d) instead of %d, whose model is not on the disc", name, first, preferred);
     return first;
+}
+
+bool ClassHasBody(const char* className)
+{
+    const uint8_t* list = FindVariantList(className);
+    if (!list)
+        return true; // no costume list: nothing known against it
+    // A body: a mesh shipped with its animation binding (Poggle's static model has none).
+    for (int i = 0, n = VariantCount(list); i < n; ++i)
+        if (MeshOnDisc(VariantMesh(list, i)) &&
+            DiscHasResource(Lower(std::string("meshes\\chars\\") + VariantMesh(list, i) + ".ban")))
+            return true;
+    return false;
 }
 
 const char* RegisteredClassName(const char* name)
@@ -475,11 +491,16 @@ const std::unordered_map<std::string, const uint8_t*>& VariantLists()
         return lists;
     scanned = true;
     const auto isText = IsRDataText;
-    // A header's name, then (at +0x2C) a first record: a costume name without a backslash and its mesh
+    // A header's name and four small numbers (the weapon, font and skeleton tables built alike have
+    // pointers there), then (at +0x2C) a first record: a costume name without a backslash and its mesh
     // ("Folder\File") with one.
     for (uint32_t a = kDataStart; a + kVariantRecords + kVariantRecordSize <= kDataEnd; a += 4) {
         const uint32_t name = *reinterpret_cast<const uint32_t*>(uintptr_t(a));
         if (!isText(name))
+            continue;
+        const auto* numbers = reinterpret_cast<const uint32_t*>(uintptr_t(a + 4));
+        if (numbers[0] == 0 || numbers[0] >= 0x10000 || numbers[1] >= 0x10000 || numbers[2] >= 0x10000 ||
+            numbers[3] >= 0x10000)
             continue;
         const uint32_t first = *reinterpret_cast<const uint32_t*>(uintptr_t(a + kVariantRecords));
         const uint32_t mesh = *reinterpret_cast<const uint32_t*>(uintptr_t(a + kVariantRecords + 4));
