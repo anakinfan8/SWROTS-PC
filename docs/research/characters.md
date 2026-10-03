@@ -240,6 +240,21 @@ another class wore earlier in the level is left to a restart (see *Shared bindin
 The level's own player's class is recorded where the player is spawned (0xB1F90; the mission names
 it without the "I": `Anakin`), and its costume where the costume is chosen, for "each level's own".
 
+## Optional sequences
+
+A character's behaviour (GBehavior `CharState`) runs sequences of steps (the steps at sequence +0x44,
+their count at +0x40, 0x14 bytes each; four step kinds, handled by the objects at CharState +0xBC to
++0xC8). A level loads only the optional sequences its own characters use; the others exist with no
+steps and a "not loaded" mark (+1; optional is bit 0x80 of +0x30). A character in a level that does
+not have it (played or spawned) can branch to one: the game reports it ("Character of type 'IObiwan'
+... is attempting to branch to sequence 'GSO_Launcher_Light', which is marked as optional but not
+loaded for this level!") and branches anyway (0x16C940). The step walk (0x49CAD0) ends only on the
+last step, which for no steps lies before the first, so it walked on through the memory after the
+empty list and crashed, at random, on a step kind it has no handler for (0x49B82A, null handler) or
+on what that left behind. The port refuses such a branch after the report (`src/game/fixes.cpp`):
+the character does not do that move. Loading the optional sequences a character needs, as the level
+would for its own characters, would give it the move back.
+
 ## Sides
 
 A character's AI data is at **+0xA00**; its "Team Setting" (a bit per team A-H, 0x1-0x80) at AI data

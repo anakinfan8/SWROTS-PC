@@ -88,6 +88,41 @@ __declspec(naked) void HashPoolTakeGuard()
     }
 }
 
+// A character's behaviour (GBehavior CharState) branches to a sequence by name (0x16C940, vtable
+// 0x58EFB8 slot 7). A level loads only the optional sequences its own characters use; the others are
+// there with no steps and marked (+1). The game reports a branch to one ("... is marked as optional but
+// not loaded for this level!") and branches anyway. Its step walk (0x49CAD0) then stops only on the
+// last step ([+0x44] + ([+0x40] - 1) * 0x14), which for no steps lies before the first: it walks on
+// through whatever memory follows until a step kind beyond its four handlers (0x49B7E0) crashes. Seen
+// with a character in a level that does not have it (Obi-Wan in the Jedi Temple: GSO_Launcher_Light).
+// The branch is refused instead, after the report: the character does not do that move. The site,
+// where the report's paths meet,
+//   lea ecx, [esp + 0xC] / call 0x225230   (9 bytes: the report's string goes; 0x16CA24 follows)
+// becomes a jump to the guard, edi holding the sequence.
+constexpr uint32_t kSequenceBranchSite = 0x0016CA1B;
+constexpr uint32_t kSequenceBranchContinue = 0x0016CA24;
+constexpr uint32_t kStringRelease = 0x00225230;
+
+void __declspec(naked) EmptySequenceGuard()
+{
+    __asm {
+        lea ecx, [esp + 0xC]
+        mov eax, kStringRelease
+        call eax
+        cmp dword ptr [edi + 0x40], 0
+        je refuse
+        push kSequenceBranchContinue
+        ret
+    refuse:
+        pop edi
+        pop esi
+        xor al, al
+        pop ebx
+        pop ecx
+        ret 0x1C
+    }
+}
+
 } // namespace
 
 void InstallGameFixes()
@@ -114,6 +149,15 @@ void InstallGameFixes()
         PatchJump(kBindingCountSite, reinterpret_cast<const void*>(uintptr_t(kBindingRebuild)));
     else
         LOG_WARN("Game fix: animation binding count site does not match; not patched");
+    uint8_t branchBytes[9] = { 0x8D, 0x4C, 0x24, 0x0C, 0xE8 };
+    const int32_t release = int32_t(kStringRelease) - int32_t(kSequenceBranchSite + 9);
+    std::memcpy(branchBytes + 5, &release, 4);
+    if (std::memcmp(reinterpret_cast<const void*>(uintptr_t(kSequenceBranchSite)), branchBytes, sizeof(branchBytes)) == 0) {
+        PatchJump(kSequenceBranchSite, reinterpret_cast<const void*>(&EmptySequenceGuard));
+        PatchNop(kSequenceBranchSite + 5, sizeof(branchBytes) - 5);
+    } else {
+        LOG_WARN("Game fix: sequence branch site does not match; not patched");
+    }
 }
 
 } // namespace swrots::game
