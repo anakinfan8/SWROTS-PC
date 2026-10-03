@@ -862,6 +862,7 @@ void ReserveFolders(uint8_t* scene, int extra)
 // clearing +0x50 of the lookup object ([kGameContext] + 0x148). Declaring an animation after that
 // sets the flag again, so the next lookup adds it (existing names are kept, not duplicated).
 constexpr int kAnimationType = 10;
+constexpr int kMeshType = 4;
 
 void MarkAnimationIndexStale()
 {
@@ -1239,11 +1240,42 @@ bool AnimationLookupResolved(void* self, void* edx, void* script, void* classInf
     return g_OriginalAnimationLookup(self, edx, script, classInfo, arg3, found, missing, flag);
 }
 
+// Character meshes the port holds a reference to for the level (one each). A level's own meshes are
+// referenced by the characters using them only: replacing the player live destroys the level's player,
+// and its mesh would be freed with it, then reloaded for the next character of that body under a model
+// still bound to the old data (0x6754A).
+std::mutex g_PinLock;
+const uint8_t* g_PinScene = nullptr;
+std::unordered_set<const void*> g_PinnedMeshes;
+
+bool IsCharacterMesh(const EnginePath* path, int typeId)
+{
+    if (typeId != kMeshType)
+        return false;
+    char dir[MAX_PATH] = {};
+    strncpy_s(dir, PathString(path, nullptr, 1), _TRUNCATE);
+    _strlwr_s(dir);
+    return std::strncmp(dir, "meshes\\chars\\", 13) == 0;
+}
+
 void* __fastcall SceneLoadHook(uint8_t* scene, void* edx, const EnginePath* path, int typeId, int flags)
 {
     ReserveSceneStrings(scene);
     g_LevelScene = scene;
     void* result = g_OriginalSceneLoad(scene, edx, path, typeId, flags);
+    if (result && IsCharacterMesh(path, typeId)) {
+        bool pin = false;
+        {
+            std::lock_guard<std::mutex> lock(g_PinLock);
+            if (g_PinScene != scene) {
+                g_PinScene = scene;
+                g_PinnedMeshes.clear();
+            }
+            pin = g_PinnedMeshes.insert(result).second;
+        }
+        if (pin)
+            g_OriginalSceneLoad(scene, edx, path, typeId, flags);
+    }
     // A null result is also the answer to "is it loaded yet?" for declared resources.
     const PakIndex* owner = nullptr;
     const PakIndex::Entry* entry = nullptr;

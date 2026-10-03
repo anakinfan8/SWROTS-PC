@@ -3,6 +3,8 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
+#include <vector>
 
 #include "kernel/xbox.h"
 
@@ -101,6 +103,9 @@ struct MemoryUsage {
     size_t poolBlocks = 0;
 };
 MemoryUsage QueryMemoryUsage();
+// The game's committed memory regions (contiguous allocations and the committed parts of its virtual
+// allocations), for research scans. Any thread.
+std::vector<std::pair<uintptr_t, size_t>> GameMemoryRegions();
 
 // --- File system (file.cpp) ------------------------------------------------
 void FileSystemInit(const Paths& paths);

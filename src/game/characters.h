@@ -85,6 +85,8 @@ void SetPlayerMaxHealth(float health);
 uint8_t* PlayerObject();
 // The character spawned last in the running level, or null (research).
 uint8_t* LastSpawnedObject();
+// The body a live player change left behind, or null (research).
+uint8_t* ReplacedPlayerObject();
 
 // A character's teams (a bit per team A-H, "Team Setting" in the game's level data), from its AI data.
 bool CharacterTeams(const uint8_t* character, uint32_t& teams);
@@ -99,6 +101,14 @@ void RefillPlayerHealth();
 
 // The characters spawned in the running level.
 int SpawnedCount();
+// Removes the characters spawned in the running level (those still there), as the game removes its own
+// objects. The number removed.
+int RemoveSpawned();
+
+// Changes the running level's player at once, where it stands, to the current choice (class, costume,
+// texture set, body; the player's own class when none is chosen): a new character takes over the
+// controls, the camera and the level's references to the player. False with `error` set when it cannot.
+bool ReplacePlayer(std::string& error);
 
 // The player's saber colour (r, g, b, 0-1), its own only: other characters keep theirs, and power-ups
 // no longer change it. Applies at once to a running level's player, and from then on; null goes back

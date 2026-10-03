@@ -34,9 +34,11 @@ Up/Down recall earlier commands.
 | `infiniteforce [on\|off]` | your Force stays full |
 | `peek <hex offset> [count]` | research: your character's fields from that offset, as hex and as numbers, in the console and log |
 | `team [spawned] [<hex teams>]` | research: your (or the last spawned character's) teams and AI data |
+| `findrefs [spawned]` | research: where the game keeps pointers to your character (or the last spawned one), with the type of the object holding each, in the console and log |
 | `memory` | the game's memory use and the characters spawned in this level (as the Game tab) |
+| `despawn` | removes the characters you spawned in this level (the Characters tab's Remove spawned) |
 | `restart` | restarts the running mission (as the pause menu's Restart Mission does) |
-| `autorestart [on\|off]` | whether a `player` change restarts the running mission at once (on by default) |
+| `autorestart [on\|off]` | whether a `player` change applies at once during a mission: live, or by restarting it (on by default) |
 | `variants <class>` | lists a character class's costumes and texture sets |
 | `meshes [text]` | lists the character bodies on the disc and under `mods\` (those containing the text) |
 | `unlockprofile` | the game's developer cheat: unlocks everything in the signed-in profile (story, fighters, arenas, bonus missions, concept art); the game saves it with the profile, so back up `saves\` first to keep your progress |
@@ -95,11 +97,17 @@ player                     shows the current choice
 | `player - mesh obi` | each level's own character, in Obi-Wan's body |
 | `player IYoda` | Yoda (his blocks are his own; some other reactions borrow Anakin's) |
 
-**When it applies.** During a mission, a change restarts the mission at once with the new
-character, as the pause menu's Restart Mission does: from the mission's start, not your last
-checkpoint. `autorestart off` (or `[Debug] AutoRestart=0` in `settings.ini`) keeps the mission
-running instead; the change then applies from the next level start or restart (`restart`). Outside
-a mission (in the menus, or while a level loads) a change simply waits for the next level.
+**When it applies.** During a mission, a change happens at once, where you stand: the new character
+replaces yours as if the level had started with it (camera, controls, health and Force bars and HUD
+portrait follow it; your old character is removed from the level, not hidden). The console prints
+`changed at once`. When that cannot be done, it prints why and restarts the mission with the new
+character instead, as the pause menu's Restart Mission does: from the mission's start, not your last
+checkpoint. That happens when the new character would wear a body another class already wore in
+this level (`player - mesh obi`, then `player IObiwan`: see *Spawning* for why), or for a class
+without a body on the disc. `autorestart off` (or `[Debug] AutoRestart=0` in `settings.ini`) keeps
+the mission running instead; the change then applies from the next level start or restart
+(`restart`). Outside a mission (in the menus, or while a level loads) a change simply waits for the
+next level.
 
 **Classes.** A class is the character's behaviour: its moves, weapons, health and AI, e.g. `IAnakin`,
 `IObiwan`, `ICloneTrooper`, `IBattleDroid`, `IYoda`. The Characters tab lists the classes that have
@@ -180,17 +188,14 @@ the first time), and fights for its class's side with its own AI (clones and dro
 fight clones), or for the side you give it: `spawn IBattleDroid ally` fights for you, `spawn
 ICloneTrooper enemy` against you. A side puts you and the spawn on teams of the port's own; a level
 character the level designers gave a team of theirs (most have none) then sees you as an enemy unless
-it shares one. Spawned characters stay until the mission restarts or the level changes. Tested with
+it shares one. Spawned characters stay until the mission restarts or the level changes, or until
+`despawn` removes them (those still in the level, the dead ones too if their bodies remain). Tested with
 100 at once (about 7 MiB more memory, no errors); large crowds lower the frame rate. A spawn
 cannot wear another body (`mesh`), and a class whose body you are wearing as another class is
-refused: a body's animation binding belongs to its mesh and is shared by everyone in it, and another
-class's binding breaks theirs (the same holds for `player ... mesh` when the level already has a
-character of another class in that body).
-
-**Changing character without a restart** is not possible yet. The game loads a character's body once,
-when it is created; reloading it in place leaves the animations bound to the old body (the character
-spins and slides), and replacing the player with a new character moves the controls and HUD over but
-not the camera, which keeps its own target. A change restarts the mission instead (above).
+refused, as is a body another class wore earlier in the level (yours, a spawn's, or a character you
+played before a live change): a body's animation binding belongs to its mesh, is built for the first
+class in it and stays for the level, and another class's animations in it break (the same holds for
+`player ... mesh` when the level already has a character of another class in that body).
 
 **Versus.** `player` is for story levels. In Versus it does not apply costumes, texture sets or meshes
 yet; use `duelist` (above) to choose the fighters.
@@ -259,17 +264,18 @@ Two areas: **Play as** (who you are) and **Spawn** (characters you add to the mi
 The buttons:
 
 - **Apply** runs the `player` command for the picks (shown in grey under the buttons, so you can
-  type it next time). During a mission it restarts the mission with the new character.
+  type it next time). During a mission your character changes at once, where you stand (or, when
+  that cannot be done, the mission restarts with it: see *When it applies* above).
 - **Back to normal** runs `player off`.
 - **Restart mission** restarts the running mission (greyed out outside a mission).
-- **Restart on apply** is `autorestart`: off, Apply only sets the character for the next level start.
+- **Apply at once** is `autorestart`: off, Apply only sets the character for the next level start.
 
 What a command printed (the choice, or why it was refused) is in the Console tab.
 
 **Spawn** uses the Play-as picks above (class, costume and skin; not the mesh: a spawn cannot wear
 another body), with **How many** (1 to 5), **Side** (*Default*: its class's own; *Ally*, *Enemy*: as
-`spawn ... ally|enemy`) and **Spawn** (`spawn`, once per character). The count of characters spawned
-in this level is shown beside it.
+`spawn ... ally|enemy`) and **Spawn** (`spawn`, once per character). **Remove spawned** (`despawn`) removes the
+characters you spawned in this level; their count is shown beside it.
 
 ## Game tab
 

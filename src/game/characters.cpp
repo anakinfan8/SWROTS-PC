@@ -188,9 +188,17 @@ void HandChoiceToRelaunch()
 }
 bool g_RestartOnChange = true; // a change restarts the mission ([Debug] AutoRestart)
 
+// The level's own player, as it asked for it (before any choice replaces it): what "each level's own"
+// means for a live change.
+std::string g_LevelClassName;
+int g_LevelCostume = -1;
+
 void __cdecl SpawnPlayerHook(void* playerClass, int variant)
 {
     g_PlayerSpawned = true;
+    const char* levelClass = playerClass ? *reinterpret_cast<const char* const*>(playerClass) : nullptr;
+    g_LevelClassName = levelClass ? levelClass : "";
+    LOG_INFO("Characters: the level's player is %s", g_LevelClassName.c_str());
     if (g_PlayerClass && playerClass) {
         auto assign = reinterpret_cast<void(__fastcall*)(void*, void*, const char*)>(uintptr_t(kTStringAssign));
         assign(playerClass, nullptr, g_PlayerClass);
@@ -367,7 +375,34 @@ constexpr float kSpawnDistance = 120.0f; // in front of the player (a character 
 std::list<OwnedList> g_SpawnLists; // the spawned characters' own costume lists (this boot)
 int g_Spawned = 0;          // numbers the spawns in the log (this session)
 int g_SpawnedInLevel = 0;   // spawned in the running level
+std::unordered_map<std::string, std::string> g_BodyClasses; // body -> class (see RecordBody)
 uint8_t* g_LastSpawned = nullptr;
+uint8_t* g_ReplacedPlayer = nullptr; // the body the last live change replaced (research: findrefs old)
+// What the port spawned in the running level, to remove them again (with their vtables then: an
+// object the game destroyed meanwhile no longer has it).
+struct SpawnedCharacter {
+    uint8_t* object;
+    uint32_t vtable;
+};
+std::vector<SpawnedCharacter> g_SpawnedCharacters;
+
+// The game's own way to remove an object (0xA2FE0, cdecl (object): its tear-down, vfunc +0x1CC, then
+// the object manager's Delete, 0xB5840, which waits for the end of an update when one is running), as
+// some fifty places in the game use it.
+constexpr uint32_t kDestroyObject = 0x000A2FE0;
+
+// Deactivated first: vfunc +0xB0 undoes the activation (+0xB4) a spawn ends with, taking the
+// character out of what it joined then (e.g. a Jedi's place in the list of characters blaster bolts
+// may be deflected by, 0x7EAAF0: IJedi slot 44 removes it, slot 45 adds it). Without it a bolt in
+// flight still finds the removed character (0x26F14A).
+constexpr uint32_t kDeactivate = 0xB0;
+
+void DestroyObject(uint8_t* object)
+{
+    reinterpret_cast<void(__fastcall*)(uint8_t*, void*)>((*reinterpret_cast<void* const* const*>(object))[kDeactivate / 4])(
+        object, nullptr);
+    reinterpret_cast<void(__cdecl*)(uint8_t*)>(uintptr_t(kDestroyObject))(object);
+}
 
 uint8_t* CreateCharacter(const char* name, const std::string& costume, const std::string& skin,
     const std::string& mesh, const char* who, std::string& error)
@@ -408,6 +443,8 @@ int __stdcall PlayerVariant(void* player, int variant)
     g_PlayerVtable = *reinterpret_cast<uint32_t*>(player);
     if (g_SaberColorSet && HasSaberColor(g_Player)) // before it equips its saber (ICharacter::Init)
         *reinterpret_cast<const float**>(g_Player + kCharacterSaberColor) = g_SaberColor;
+    if (!g_PlayerClass)
+        g_LevelCostume = variant; // the level's costume for its own class
     const int chosen = g_PlayerClass ? VariantOnDisc(player, variant) : variant;
     return Dress(g_Player, chosen, g_PlayerVariant, g_PlayerSkin, g_PlayerMesh, g_PlayerList, "the player");
 }
@@ -605,6 +642,9 @@ void InstallCharacters()
     g_SpawnLists.clear(); // the level's characters went with the reboot
     g_SpawnedInLevel = 0;
     g_LastSpawned = nullptr;
+    g_ReplacedPlayer = nullptr;
+    g_SpawnedCharacters.clear();
+    g_BodyClasses.clear();
     kernel::SetBeforeRelaunch(&HandChoiceToRelaunch);
     uint8_t* stub = AllocStub(16);
     std::memcpy(stub, reinterpret_cast<const void*>(uintptr_t(kSpawnPlayer)), 5);
@@ -827,6 +867,222 @@ int ClassTextureSetIndex(const char* className, const std::string& spec)
     return list ? FindTextureSet(list, spec) : -1;
 }
 
+// --- Changing the player live ---------------------------------------------------------------------
+// The new character (the current choice of class, costume, texture set and body) is spawned where the
+// player stands and takes over:
+// - "the player" (0xA30F0, some 400 callers) is the primary character record's +0xC (record
+//   [0x68DCEC], 0xB1C60); controller 0 is bound with 0x150580 (thiscall (int id), rebinding the input
+//   manager's slot, 0x8ADD0); +0x390 = 2 marks the player-controlled character; 0x68EF70 points at the
+//   player's transform (+0x150);
+// - the level's own references to the player move to it (found by a scan, as `findrefs` lists them):
+//   the camera's focus lists (TCamComPrimaryFocusList +0x44) and controls (ICameraControl), the level's
+//   triggers and points (ICharacterGoto +0x1F0, IPointSpawnPlayer, ICinematicsPlayer, IGuardPoint,
+//   IInvisibleBrush), and other characters' references (their targets). The old body's own parts (its
+//   saber, effect groups, mesh instances, animation commits) keep pointing at it;
+// - the old player is marked inactive (+0xC 0x08000000) and moved far below the level.
+constexpr uint32_t kBindController = 0x00150580;    // thiscall (int id)
+constexpr uint32_t kPrimaryCharacter = 0x0068DCEC;  // the player's creation record: +0xC the player
+constexpr uint32_t kPlayerTransformRef = 0x0068EF70; // const float* (the player's +0x150)
+constexpr uint32_t kCharacterControl = 0x390;       // 2: the player's
+constexpr uint32_t kPlace = 0x1F4;                   // object vfunc, thiscall (const float m[16])
+
+// The level's references to the player, by the object type's vtable and the field (as `findrefs`
+// found them in the Jedi Temple): only a dword in such a field of such an object moves.
+struct LevelReference {
+    uint32_t vtable;
+    uint32_t field;
+    uint32_t into; // where in the player it points: 0 the player, 0x150 its transform
+};
+constexpr uint32_t kGameManager = 0x007EB964;      // the game manager (pointer)
+constexpr uint32_t kManagerPlayerSlots = 0x1E4;    // its player slots
+constexpr uint32_t kManagerPlayerIds = 0x2A4;      // a player's instance id per slot
+constexpr uint32_t kFocusListVtable = 0x0056CB0C; // TCamComPrimaryFocusList
+constexpr uint32_t kHudVitalsVtable = 0x005A82B0;  // the HUD's portrait (HudVitals.cpp)
+constexpr LevelReference kLevelReferences[] = {
+    { 0x0056CB0C, 0x044, 0 },     // TCamComPrimaryFocusList: the camera's focus
+    { 0x0056D028, 0x274, 0 },     // ICameraControl
+    { 0x0056D028, 0x20C, 0 },
+    { 0x0056D028, 0x21C, 0 },
+    { 0x00598970, 0x1F0, 0 },     // ICharacterGoto: a trigger moving the player
+    { 0x00580AF8, 0x21C, 0 },     // IPointSpawnPlayer
+    { 0x00599128, 0x1E0, 0 },     // ICinematicsPlayer
+    { 0x00592F30, 0x1F0, 0 },     // IGuardPoint
+    { 0x0057E168, 0x05C, 0 },     // IInvisibleBrush
+};
+
+bool ReadGameDword(uintptr_t a, uint32_t& v)
+{
+    __try {
+        v = *reinterpret_cast<const uint32_t*>(a);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// The level reference at `a` pointing `into` the player, if it is one.
+bool IsLevelReference(uintptr_t a, uintptr_t base, uint32_t into)
+{
+    for (const LevelReference& r : kLevelReferences) {
+        uint32_t vtable;
+        if (r.into == into && a >= base + r.field && ReadGameDword(a - r.field, vtable) && vtable == r.vtable)
+            return true;
+    }
+    return false;
+}
+
+int RepointPlayerReferences(uint8_t* from, uint8_t* to)
+{
+    std::vector<std::pair<uintptr_t, size_t>> regions = kernel::GameMemoryRegions();
+    regions.push_back({ 0x00612BE0, 0x0096E000 - 0x00612BE0 }); // the image's .data and .bss
+    const uint32_t old = uint32_t(uintptr_t(from)), fresh = uint32_t(uintptr_t(to));
+    const uintptr_t skipLo = uintptr_t(from), skipHi = skipLo + 0x1200;
+    const uintptr_t newLo = uintptr_t(to), newHi = newLo + 0x1200;
+    int moved = 0;
+    std::vector<uintptr_t> focusLists;
+    int portraits = 0;
+    for (const auto& [base, size] : regions) {
+        for (uintptr_t a = base; a + 4 <= base + size; a += 4) {
+            uint32_t v;
+            if (!ReadGameDword(a, v))
+                break;
+            // The HUD's portrait (HudVitals, 0x25E960, vtable slot 3) is picked once (+0xD set; +0xC when
+            // there was none) from the player's class, into +0x10: picked again, it is the new player's.
+            if (v == kHudVitalsVtable && a + 0x14 <= base + size) {
+                *reinterpret_cast<uint8_t*>(a + 0xC) = 0; // gave up (no face)
+                *reinterpret_cast<uint8_t*>(a + 0xD) = 0; // picked
+                ++portraits;
+                continue;
+            }
+            if (v < old || v >= old + 0x1200 || (a >= skipLo && a < skipHi) || (a >= newLo && a < newHi))
+                continue;
+            const uint32_t into = v - old;
+            // In the Xbox's contiguous memory (menus, the HUD among them): bindings to the player's values.
+            const bool binding = a >= 0x80000000u && into != 0;
+            if (binding)
+                LOG_INFO("Characters: a binding to the player +0x%X at %08X moved", into, uint32_t(a));
+            if (!binding && (into != 0 && into != kCharacterTransform))
+                continue;
+            if (!binding && !IsLevelReference(a, base, into))
+                continue;
+            uint32_t vtable = 0;
+            if (ReadGameDword(a - 0x44, vtable) && vtable == kFocusListVtable)
+                focusLists.push_back(a - 0x44);
+            *reinterpret_cast<uint32_t*>(a) = fresh + into;
+            ++moved;
+        }
+    }
+    // The camera's focus lists cache a node of their target's (entry +8, from its vfunc +0x5C) when
+    // resolved; resolving them again (slot 5, 0xC4650: thiscall (owner), the owner kept at +4) takes
+    // the new player's, for the entries marked as the player's.
+    std::sort(focusLists.begin(), focusLists.end());
+    focusLists.erase(std::unique(focusLists.begin(), focusLists.end()), focusLists.end());
+    for (uintptr_t list : focusLists) {
+        auto* object = reinterpret_cast<uint8_t*>(list);
+        const auto resolve = reinterpret_cast<void(__fastcall*)(uint8_t*, void*, uint32_t)>(
+            (*reinterpret_cast<void* const* const*>(object))[5]);
+        resolve(object, nullptr, *reinterpret_cast<uint32_t*>(object + 4));
+    }
+    LOG_INFO("Characters: %zu camera focus list(s) resolved again, %d HUD portrait(s) to pick again",
+        focusLists.size(), portraits);
+    return moved;
+}
+
+// The class each body (mesh) was bound to in this level, by the characters the port placed and the
+// players it replaced. A body's animation binding (its .ban) is built for the first class wearing it
+// and stays while the mesh is loaded, which the port keeps for the level (see resources.cpp): another
+// class in it would animate with the wrong binding (0x663C5: an animation index it does not have).
+std::string CharacterBody(const uint8_t* character)
+{
+    const uint8_t* list = *reinterpret_cast<uint8_t* const*>(character + kCharacterVariants);
+    const int costume = *reinterpret_cast<const int*>(character + kCharacterCostume);
+    return list && costume >= 0 && costume < VariantCount(list) ? Lower(VariantMesh(list, costume)) : std::string();
+}
+
+std::string CharacterType(uint8_t* character)
+{
+    const auto typeName = reinterpret_cast<const char*(__fastcall*)(uint8_t*, void*)>(
+        (*reinterpret_cast<void* const* const*>(character))[3]);
+    return Lower(typeName(character, nullptr));
+}
+
+void RecordBody(uint8_t* character)
+{
+    const std::string body = CharacterBody(character);
+    if (!body.empty())
+        g_BodyClasses.emplace(body, CharacterType(character));
+}
+
+bool BodyBoundToAnotherClass(uint8_t* character)
+{
+    const auto it = g_BodyClasses.find(CharacterBody(character));
+    return it != g_BodyClasses.end() && it->second != CharacterType(character);
+}
+
+bool ReplacePlayer(std::string& error)
+{
+    if (!PlayerAlive()) {
+        error = "no mission is running";
+        return false;
+    }
+    // The class: the chosen one, else the level's own (in its own costume unless one is chosen).
+    const char* name = g_PlayerClass ? g_PlayerClass : RegisteredClassName(g_LevelClassName.c_str());
+    if (!name && !g_PlayerClass) // the mission list names it without its "I" (Player:Anakin)
+        name = RegisteredClassName(("I" + g_LevelClassName).c_str());
+    std::string costume = g_PlayerVariant;
+    if (!g_PlayerClass && costume.empty() && g_LevelCostume >= 0)
+        costume = std::to_string(g_LevelCostume);
+    if (!name || !ClassHasBody(name)) {
+        error = "the player's class cannot be changed live";
+        return false;
+    }
+    uint8_t* old = g_Player;
+    float m[16];
+    std::memcpy(m, old + kCharacterTransform, sizeof(m));
+    uint8_t* fresh = CreateCharacter(name, costume, g_PlayerSkin, g_PlayerMesh, "the player", error);
+    if (!fresh)
+        return false;
+    // Two classes in one body share its animation binding: a body another class wore in this level is
+    // left to a restart (the object was never placed; the game does not see it).
+    RecordBody(old);
+    if (BodyBoundToAnotherClass(fresh)) {
+        error = "another class wore the same body in this level";
+        return false;
+    }
+    if (g_SaberColorSet && HasSaberColor(fresh))
+        *reinterpret_cast<const float**>(fresh + kCharacterSaberColor) = g_SaberColor;
+    if (!PlaceCharacter(fresh, m, name, error))
+        return false;
+    RecordBody(fresh);
+    *reinterpret_cast<int*>(fresh + kCharacterControl) = 2;
+    reinterpret_cast<void(__fastcall*)(uint8_t*, void*, int)>(uintptr_t(kBindController))(fresh, nullptr, 0);
+    *reinterpret_cast<const float**>(uintptr_t(kPlayerTransformRef)) = reinterpret_cast<const float*>(fresh + kCharacterTransform);
+    if (auto* record = *reinterpret_cast<uint8_t**>(uintptr_t(kPrimaryCharacter))) {
+        if (*reinterpret_cast<uint8_t**>(record + 0xC) == old)
+            *reinterpret_cast<uint8_t**>(record + 0xC) = fresh;
+    }
+    const int moved = RepointPlayerReferences(old, fresh);
+    // The game manager knows the players by instance id (+4), per slot (+0x2A4[slot], +0x1E4 slots),
+    // and finds them with ObjectById (0x27AB30: the HUD's health and Force bars, among others).
+    if (auto* manager = *reinterpret_cast<uint8_t**>(uintptr_t(kGameManager))) {
+        const int32_t slots = *reinterpret_cast<int32_t*>(manager + kManagerPlayerSlots);
+        const uint32_t oldId = *reinterpret_cast<uint32_t*>(old + 4), freshId = *reinterpret_cast<uint32_t*>(fresh + 4);
+        for (int32_t i = 0; i < slots && i < 8; ++i) {
+            auto& id = *reinterpret_cast<uint32_t*>(manager + kManagerPlayerIds + i * 4);
+            if (id == oldId)
+                id = freshId;
+        }
+    }
+    // The old player goes, as the game removes its own objects.
+    *reinterpret_cast<int*>(old + kCharacterControl) = 0;
+    DestroyObject(old);
+    g_ReplacedPlayer = old;
+    g_Player = fresh;
+    g_PlayerVtable = *reinterpret_cast<uint32_t*>(fresh);
+    LOG_INFO("Characters: the player changed live to %s (%d references moved)", name, moved);
+    return true;
+}
+
 bool SpawnCharacter(const char* className, const std::string& costume, const std::string& skin,
     const std::string& mesh, SpawnSide side, std::string& error)
 {
@@ -858,6 +1114,12 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
             "your animation (pick another costume)";
         return false; // the object was never placed; the game does not see it
     }
+    RecordBody(g_Player);
+    if (BodyBoundToAnotherClass(object)) {
+        error = std::string(name) + " wears " + CharacterBody(object) + ", a body another class wore in this level "
+            "(pick another costume, or restart the mission)";
+        return false;
+    }
     // In front of the player, facing it: right and forward turned round.
     float m[16];
     std::memcpy(m, g_Player + kCharacterTransform, sizeof(m));
@@ -869,6 +1131,7 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
     }
     if (!PlaceCharacter(object, m, name, error))
         return false;
+    RecordBody(object);
     LOG_INFO("Characters: %s at %.0f %.0f %.0f", who, m[12], m[13], m[14]);
     if (side != SpawnSide::Default) {
         // Teams decide only when both have some (0x18F451: a shared bit is an ally, none an enemy);
@@ -881,6 +1144,7 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
     }
     ++g_SpawnedInLevel;
     g_LastSpawned = object;
+    g_SpawnedCharacters.push_back({ object, *reinterpret_cast<uint32_t*>(object) });
     return true;
 }
 
@@ -902,6 +1166,7 @@ bool InfiniteForce()
 
 void PlayerFrame()
 {
+
     // Infinite Force: the player's Force kept at its maximum (Jedi-like characters have it).
     if (g_InfiniteForce && PlayerAlive() && HasSaberColor(g_Player))
         *reinterpret_cast<float*>(g_Player + kCharacterPower) = *reinterpret_cast<const float*>(g_Player + kCharacterMaxPower);
@@ -915,6 +1180,11 @@ uint8_t* PlayerObject()
 uint8_t* LastSpawnedObject()
 {
     return g_LastSpawned;
+}
+
+uint8_t* ReplacedPlayerObject()
+{
+    return g_ReplacedPlayer;
 }
 
 // A character's teams: its AI data (character +0xA00) holds "Team Setting" (TAIData +0x214, a bit per
@@ -999,6 +1269,23 @@ PlayerInfo CurrentPlayer()
 int SpawnedCount()
 {
     return g_SpawnedInLevel;
+}
+
+int RemoveSpawned()
+{
+    int removed = 0;
+    for (const SpawnedCharacter& spawned : g_SpawnedCharacters) {
+        // Still there: its vtable, and not already being deleted (+0x11D, as the manager's Delete checks).
+        if (*reinterpret_cast<uint32_t*>(spawned.object) != spawned.vtable || spawned.object[0x11D])
+            continue;
+        DestroyObject(spawned.object);
+        ++removed;
+    }
+    g_SpawnedCharacters.clear();
+    g_SpawnedInLevel = 0;
+    g_LastSpawned = nullptr;
+    LOG_INFO("Characters: %d spawned character(s) removed", removed);
+    return removed;
 }
 
 void SetPlayerSaberColor(const float* rgb)

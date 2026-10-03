@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <map>
 #include <mutex>
 #include <unordered_set>
@@ -309,6 +310,38 @@ KERNEL_EXPORT(23, ExQueryPoolBlockSize);
 // ---------------------------------------------------------------------------
 // Reboot: everything the game allocated goes, contiguous memory starts empty.
 // ---------------------------------------------------------------------------
+std::vector<std::pair<uintptr_t, size_t>> GameMemoryRegions()
+{
+    std::vector<std::pair<uintptr_t, size_t>> regions;
+    {
+        std::lock_guard<std::mutex> lock(g_ContigLock);
+        for (const auto& [off, size] : g_ContigUsed) {
+            // Only its committed, readable pages.
+            auto* p = reinterpret_cast<uint8_t*>(uintptr_t(g_ContigBase) + off);
+            auto* end = p + size;
+            MEMORY_BASIC_INFORMATION info;
+            while (p < end && VirtualQuery(p, &info, sizeof(info))) {
+                const size_t left = size_t(end - p);
+                const size_t span = std::min<size_t>(info.RegionSize - size_t(p - static_cast<uint8_t*>(info.BaseAddress)), left);
+                if (info.State == MEM_COMMIT && !(info.Protect & (PAGE_GUARD | PAGE_NOACCESS)))
+                    regions.push_back({ uintptr_t(p), span });
+                p += span;
+            }
+        }
+    }
+    std::lock_guard<std::mutex> lock(g_TrackLock);
+    for (void* base : g_VirtualBases) {
+        auto* p = static_cast<uint8_t*>(base);
+        MEMORY_BASIC_INFORMATION info;
+        while (VirtualQuery(p, &info, sizeof(info)) && info.AllocationBase == base) {
+            if (info.State == MEM_COMMIT && !(info.Protect & (PAGE_GUARD | PAGE_NOACCESS)))
+                regions.push_back({ uintptr_t(info.BaseAddress), info.RegionSize });
+            p += info.RegionSize;
+        }
+    }
+    return regions;
+}
+
 MemoryUsage QueryMemoryUsage()
 {
     MemoryUsage usage;

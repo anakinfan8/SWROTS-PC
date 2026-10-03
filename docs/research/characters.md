@@ -195,23 +195,50 @@ instead of being opened on the disc, and (b) the packer's "put the stream back" 
 **Shared bindings.** A body's animation binding (`<mesh>.ban`) is one resource per mesh, shared by every
 character wearing it; it is rebuilt for a class whose animations it lacks. Two classes in one body in
 the same level therefore fight over it, and the one rebuilt over crashes in its animation (0x663C5).
-The port refuses spawns that would do this; a spawn takes no other body.
+The binding stays as long as the mesh is loaded, and the port keeps character meshes loaded for the
+level (see below), so the first class in a body owns it for the level. The port records the class of
+every body it places (spawns, live players, the player a live change replaced) and refuses another
+class in one of them; a spawn takes no other body.
 
-## Changing the player live (not done)
+## Changing the player live
 
-- *The body in place*: re-running the body load's mesh part on the live player (costume vfunc +0x2C8,
-  the mesh holder +0x388's load vfunc +0x70, post-mesh 0x152780) loads the mesh but the animation
-  binding and state (+0x438, from `TLinkScript::Lock`) stay the old body's: the engine reports "No
-  running animation has valid movement data" every frame and the character spins.
-- *Replacing the player*: a new character spawned at the player's transform can take over. The
-  player that some 400 call sites ask for (0xA30F0) is the primary character record's +0xC (record
-  `[0x68DCEC]`, 0xB1C60), controller 0 is bound with 0x150580 (thiscall `(int id)`, rebinding the
-  input manager's slot through 0x8ADD0), +0x390 = 2 marks the player-controlled character, and
-  0x68EF70 points at the player's transform. With all of those moved over, the master camera still
-  follows the old player: it keeps its own target in its camera-mode objects (TCCMode / TCCControl,
-  around 0x12B7A0), not yet found. The old player can be marked inactive (+0xC 0x08000000) but keeps
-  being simulated and drawn; no instance removal function was found (0xB63F0 initializes and
-  registers, 0xB4CC0 finds by id).
+Reloading the body in place does not work: re-running the body load's mesh part on the live player
+(costume vfunc +0x2C8, the mesh holder +0x388's load vfunc +0x70, post-mesh 0x152780) loads the mesh,
+but the animation binding and state (+0x438, from `TLinkScript::Lock`) stay the old body's ("No
+running animation has valid movement data" every frame; the character spins). The port replaces the
+player instead (`game::ReplacePlayer`), as if the level had started with the new character:
+
+1. The new character is created as a spawn is (class, costume, texture set, body) and placed at the
+   player's transform (+0x150).
+2. It becomes the player: the primary character record's +0xC (record `[0x68DCEC]`, 0xB1C60; what
+   0xA30F0 and some 400 callers return), +0x390 = 2 (the player-controlled character), controller 0
+   bound with 0x150580 (thiscall `(int id)`, rebinding the input manager's slot through 0x8ADD0), and
+   0x68EF70 pointing at its transform.
+3. The level's references to the old player move to it, found by scanning the game's memory and
+   static data for pointers to the old character (as `findrefs` lists them) and moving those in known
+   holders, matched by vtable and field: the camera's focus lists (TCamComPrimaryFocusList, vtable
+   0x56CB0C, +0x44), camera controls, the level's triggers and points. The focus lists cache the
+   target's node (entries of 0x70 bytes: +0 "is the player", +4 the target, +8 the node from the
+   target's vfunc +0x5C); each list resolves its entries again with its vfunc 5 (0xC4650). Bindings
+   in contiguous memory (0x8xxxxxxx: HUD and menu bindings pointing into the player, e.g. +0x168 and
+   +0xD52) move with their offset.
+4. The game manager (`[0x7EB964]`) knows the players by instance id (object +4), per slot (+0x2A4,
+   +0x1E4 slots); the HUD's bars find the player through it (0x27AB30). The ids are moved over. The
+   HUD portrait objects (HudVitals, vtable 0x5A82B0) keep the face they picked: +0xD "picked" and
+   +0xC "gave up" are cleared, and they pick the new class's face on the next frame.
+5. The old player is removed as the game removes its own objects: deactivated (vfunc +0xB0: it
+   leaves the level's lists, such as the Jedi deflecting projectiles, 0x7EAAF0; without it a
+   projectile's deflection check crashes at 0x26F14A), then deleted (0xA2FE0: vfunc +0x1CC, then
+   `TManager_Object::Delete`, 0xB5840).
+
+The level's own player is held by nothing else, so destroying it would free its body; a later
+character in that body (`player off` after a live change) then reloads the mesh under a model still
+bound to the old data (0x6754A). The port keeps a reference to every character mesh the level loads
+(`SceneLoadHook`, `src/game/resources.cpp`). With the mesh kept, its binding is kept too, so a body
+another class wore earlier in the level is left to a restart (see *Shared bindings*).
+
+The level's own player's class is recorded where the player is spawned (0xB1F90; the mission names
+it without the "I": `Anakin`), and its costume where the costume is chosen, for "each level's own".
 
 ## Sides
 
@@ -244,7 +271,7 @@ vfunc +4). Classes without a portrait (the clone trooper) show none.
 
 ## Restarting the mission
 
-A change of character applies when the player is created, so the port restarts the running mission:
+When a change of character cannot be made live (above), the port restarts the running mission:
 an in-process reboot with the launch data the running game image started with, as the game's own
 Restart Mission does (`kernel::RestartMission`). The launch data page itself is no use: the game
 rewrites it while it runs, and from the menus it no longer names the mission. The port keeps a copy
@@ -257,9 +284,10 @@ back to starting the game process again; the character choice is handed to the n
 
 ## Open questions
 
-- **Changing the character live**, without a restart: the body is loaded once in `ICharacter::Init`
-  (0x155710 onwards), and nothing in the retail build reloads it. Replacing the player in place (a
-  new character at the old one's position, with its health and state) is the likely route.
+- **Carrying state over in a live change**: the new character starts with its class's health and
+  Force, not the old player's; the old player's combat state (a grab, a saber lock) is not handed on.
+- **One body, two classes**: a body's binding could be rebuilt for a second class without breaking
+  the first if both bindings were kept (one per class rather than one per mesh).
 - **Versus**: costumes, texture sets and bodies for fighters need the fighter creation path
   (0x27B7D0 / 0xA2DE0) hooked like 0xB1DE1.
 - The four numbers in a costume list's header.

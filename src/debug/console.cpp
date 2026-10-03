@@ -243,8 +243,9 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>] [ally|enemy]  a character in front of the player");
     Print(LineKind::Output, "  infiniteforce [on|off]   your Force stays full");
     Print(LineKind::Output, "  memory                   the game's memory use, and the characters spawned");
+    Print(LineKind::Output, "  despawn                  remove the characters you spawned");
     Print(LineKind::Output, "  restart                  restart the mission");
-    Print(LineKind::Output, "  autorestart [on|off]     whether player changes restart the mission at once");
+    Print(LineKind::Output, "  autorestart [on|off]     whether player changes apply at once (live, or by restarting)");
     Print(LineKind::Output, "  variants <class>         a character class's costumes");
     Print(LineKind::Output, "  meshes [text]            the character meshes on the disc (those containing text)");
     Print(LineKind::Output, "  unlockprofile            unlock everything in the signed-in profile (it is saved with it)");
@@ -351,9 +352,19 @@ void Restart()
 }
 
 // After a change of character: the mission restarts with it, or it waits for the next level start.
+// After a change of character: during a mission it happens at once, the new character taking the old
+// one's place; when that cannot be done, the mission restarts with it (or, with autorestart off, it waits
+// for the next level start).
 void PlayerChanged()
 {
     ShowPlayer();
+    std::string error;
+    if (game::PlayerInLevel() && game::RestartOnChange() && game::ReplacePlayer(error)) {
+        Print(LineKind::Output, "  changed at once");
+        return;
+    }
+    if (!error.empty())
+        Print(LineKind::Output, "  not at once (%s): restarting instead", error.c_str());
     if (game::PlayerInLevel() && game::RestartOnChange())
         Restart();
     else if (game::PlayerInLevel())
@@ -536,13 +547,22 @@ void Spawn(const std::vector<std::string>& words)
 
 // peek <hex offset> [count] [spawned]: the player's (or the last spawned character's) dwords from
 // there, as hex and as floats (research).
+bool ReadDword(uintptr_t a, uint32_t& v);
+
 void Peek(const std::vector<std::string>& words)
 {
     // "spawned": the last spawned character; "at <hex address>" as the 4th word: any address.
     const bool spawned = words.size() > 3 && _stricmp(words[3].c_str(), "spawned") == 0;
     const bool at = words.size() > 4 && _stricmp(words[3].c_str(), "at") == 0;
-    uint8_t* player = at ? reinterpret_cast<uint8_t*>(uintptr_t(strtoul(words[4].c_str(), nullptr, 16)))
-        : spawned ? game::LastSpawnedObject() : game::PlayerObject();
+    uint8_t* player = spawned ? game::LastSpawnedObject() : game::PlayerObject();
+    if (at) {
+        // "at <hex>" an address; "at *<hex>" the pointer stored there.
+        const bool deref = words[4][0] == '*';
+        uint32_t address = uint32_t(strtoul(words[4].c_str() + (deref ? 1 : 0), nullptr, 16));
+        if (deref && !ReadDword(address, address))
+            address = 0;
+        player = reinterpret_cast<uint8_t*>(uintptr_t(address));
+    }
     if (!player || words.size() < 2) {
         Print(LineKind::Error, player ? "peek <hex offset> [count] [spawned | at <hex address>]" : "no mission is running");
         return;
@@ -606,6 +626,104 @@ void Team(const std::vector<std::string>& words)
         const auto* w = reinterpret_cast<const uint32_t*>(ai + off);
         Print(LineKind::Output, "  ai+%02X: %08X %08X %08X %08X", off, w[0], w[1], w[2], w[3]);
     }
+}
+
+// findrefs [spawned]: where the game keeps pointers to the player (or the last spawned character):
+// every aligned dword in its memory and static data pointing at the character or into it (within
+// 0x1200 bytes), with the object around it found by its vtable (research: what a live swap must move).
+bool IsVtable(uint32_t value)
+{
+    if (value < 0x0055F660 || value >= 0x00612BC8 || (value & 3))
+        return false;
+    const uint32_t first = *reinterpret_cast<const uint32_t*>(uintptr_t(value));
+    return first >= 0x00011000 && first < 0x004FEB00;
+}
+
+bool ReadDword(uintptr_t a, uint32_t& v)
+{
+    __try {
+        v = *reinterpret_cast<const uint32_t*>(a);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// The nearest vtable pointer at or before `a` (within 0x1000 bytes, not before `base`), and its type.
+void OwnerOf(uintptr_t a, uintptr_t base, uintptr_t& owner, uint32_t& vtable, const char*& type)
+{
+    owner = 0;
+    vtable = 0;
+    type = nullptr;
+    __try {
+        for (uintptr_t o = a & ~uintptr_t(3); o + 0x1000 > a && o >= base; o -= 4) {
+            const uint32_t w = *reinterpret_cast<const uint32_t*>(o);
+            if (IsVtable(w)) {
+                owner = o;
+                vtable = w;
+                break;
+            }
+        }
+        // No type name: calling a vtable's slot is only safe for real objects, and a match may not be
+        // one (name the vtables from the symbol map instead).
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        type = nullptr;
+    }
+}
+
+void FindRefs(const std::vector<std::string>& words)
+{
+    const bool spawned = words.size() > 1 && _stricmp(words[1].c_str(), "spawned") == 0;
+    const bool replaced = words.size() > 1 && _stricmp(words[1].c_str(), "old") == 0;
+    uint8_t* target = spawned ? game::LastSpawnedObject() : replaced ? game::ReplacedPlayerObject() : game::PlayerObject();
+    // "field <hex offset>" (last two words): the object the character points to there instead.
+    if (target && words.size() >= 3 && _stricmp(words[words.size() - 2].c_str(), "field") == 0) {
+        const uint32_t off = uint32_t(strtoul(words.back().c_str(), nullptr, 16));
+        uint32_t v = 0;
+        target = ReadDword(uintptr_t(target) + off, v) ? reinterpret_cast<uint8_t*>(uintptr_t(v)) : nullptr;
+    }
+    if (!target) {
+        Print(LineKind::Error, "no such character");
+        return;
+    }
+    const uintptr_t lo = uintptr_t(target), hi = lo + 0x1200;
+    std::vector<std::pair<uintptr_t, size_t>> regions = kernel::GameMemoryRegions();
+    std::sort(regions.begin(), regions.end());
+    regions.erase(std::unique(regions.begin(), regions.end()), regions.end());
+    regions.push_back({ 0x00612BE0, 0x0096E000 - 0x00612BE0 }); // the image's .data and .bss
+    int shown = 0, total = 0;
+    for (const auto& [base, size] : regions) {
+        for (uintptr_t a = base; a + 4 <= base + size; a += 4) {
+            uint32_t v;
+            if (!ReadDword(a, v))
+                break;
+            if (v < lo || v >= hi || (a >= lo && a < hi))
+                continue;
+            ++total;
+            if (shown >= 300)
+                continue;
+            ++shown;
+            uintptr_t owner;
+            uint32_t vtable;
+            const char* type;
+            OwnerOf(a, base, owner, vtable, type);
+            Print(LineKind::Output, "  %08X -> +%03X   in %08X+%03X vtable %08X %s", uint32_t(a), uint32_t(v - lo),
+                uint32_t(owner), uint32_t(a - owner), vtable, type ? type : "");
+            if (!vtable && v == lo) {
+                // No object around it: the data before and after, to tell what holds it.
+                char line[200] = "     around:";
+                for (int k = -6; k <= 6; ++k) {
+                    uint32_t w = 0;
+                    ReadDword(a + k * 4, w);
+                    char word[12];
+                    sprintf_s(word, k == 0 ? " [%08X]" : " %08X", w);
+                    strcat_s(line, word);
+                }
+                Print(LineKind::Output, "%s", line);
+            }
+        }
+    }
+    Print(LineKind::Output, "  %d reference(s) to %s %08X", total, spawned ? "spawned" : "player", uint32_t(lo));
 }
 
 void AutoRestart(const std::vector<std::string>& words)
@@ -704,7 +822,7 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         command != "restart" && command != "autorestart" && command != "unlockprofile" &&
         command != "freecam" && command != "saber" && command != "spawn" && command != "peek" &&
         command != "infiniteforce" && command != "memory" && command != "team" &&
-        command != "killspawned")
+        command != "findrefs" && command != "despawn")
         return false;
     Print(LineKind::Output, "> %s", line.c_str());
     if (command == "duelist") {
@@ -733,14 +851,10 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         Memory();
     } else if (command == "team") {
         Team(words);
-    } else if (command == "killspawned") {
-        // Research: the last spawned character's health to 0.
-        if (uint8_t* spawned = game::LastSpawnedObject()) {
-            *reinterpret_cast<float*>(spawned + 0x130) = 0.0f;
-            Print(LineKind::Output, "  the last spawned character's health is 0");
-        } else {
-            Print(LineKind::Error, "nothing spawned");
-        }
+    } else if (command == "findrefs") {
+        FindRefs(words);
+    } else if (command == "despawn") {
+        Print(LineKind::Output, "  %d spawned character(s) removed", game::RemoveSpawned());
     } else if (command == "unlockprofile") {
         // The game's own developer command (TVaderGameOptions), not registered in the retail build.
         reinterpret_cast<void(__cdecl*)()>(uintptr_t(game::kUnlockProfile))();
@@ -830,7 +944,7 @@ void RunQueuedConsoleCommands()
             // and gone while a level loads).
             const std::vector<std::string> words = Words(line);
             static const char* const kStandalone[] = { "player", "variants", "meshes", "restart", "autorestart",
-                "duelist", "freecam", "saber", "spawn", "peek", "infiniteforce", "memory", "team", "killspawned", "clear", "cls" };
+                "duelist", "freecam", "saber", "spawn", "peek", "infiniteforce", "memory", "team", "findrefs", "despawn", "clear", "cls" };
             const bool standalone = !words.empty() && std::any_of(std::begin(kStandalone), std::end(kStandalone),
                 [&](const char* c) { return _stricmp(words[0].c_str(), c) == 0; });
             if (standalone) {

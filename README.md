@@ -36,9 +36,11 @@ Things the Xbox release never had:
 - **Play story levels as anyone, in any costume or body.** Vader in Order 66, Anakin without his
   robe in the Jedi Temple, a 501st clone trooper, Obi-Wan in Anakin's duel outfit: pick a class, a
   costume, a texture set and a body in the debug menu's Characters tab (or `player IAnakin duel`),
-  and the mission restarts with them. Some missions expect their own character.
+  and your character changes on the spot, as if the level had started with it (or the mission
+  restarts with it when that cannot be done). Some missions expect their own character.
 - **Spawn any character** into the running mission (`spawn IVader`, or the Characters tab's Spawn
-  button), loaded from other levels if need be, and give **your saber its own colour**
+  button), on your side or against you, loaded from other levels if need be, remove them again
+  (`despawn`), and give **your saber its own colour**
   (`saber red`, any colour), which power-ups no longer change.
 - **Unlock everything** with the developers' own cheat, `unlockprofile` (debug console).
 - **Free camera.** Fly the view anywhere with `freecam` (debug console): keyboard and mouse or a
@@ -123,8 +125,8 @@ the run before. Say what you were doing, which level, and whether it happens eve
 - An in-game settings menu, keyboard as its own player for versus modes, more controllers.
 - More versus fighters from the disc (the framework for Yoda's slot takes more), Yoda's own duel
   intro, and a darker player-2 bust and HUD portrait for Sith Yoda. Playing as any character works in story levels;
-  next are changing character without a restart, costumes and bodies in Versus, choosing a
-  spawned character's side, and blaster fire for gunner characters.
+  next are costumes and bodies in Versus, keeping health and Force through a live change of
+  character, and blaster fire for gunner characters.
 - A photo mode built on the free camera, with the game's own menus.
 - Modding tools: a character swap tool, dumping and replacing animations.
 - A full playthrough on many machines, and a stable 1.0.

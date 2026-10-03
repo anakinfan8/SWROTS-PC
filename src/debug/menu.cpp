@@ -276,6 +276,17 @@ void SpawnArea(const CharacterPicks& picks)
         ImGui::SetTooltip("Characters of the picked class, costume and skin (not body) in front of you,\n"
                           "until the mission restarts. Needs a class picked above and a running mission.");
     ImGui::SameLine();
+    const bool anySpawned = game::SpawnedCount() > 0 && game::PlayerInLevel();
+    if (!anySpawned)
+        ImGui::BeginDisabled();
+    if (ImGui::Button("Remove spawned"))
+        Submit("despawn");
+    if (!anySpawned)
+        ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Removes every character spawned here that is still in the level\n"
+                          "(the dead ones too, if their bodies remain).");
+    ImGui::SameLine();
     ImGui::TextDisabled("%d spawned in this level", game::SpawnedCount());
 }
 
@@ -441,11 +452,12 @@ void CharactersTab()
         ImGui::EndDisabled();
     ImGui::SameLine();
     bool autoRestart = game::RestartOnChange();
-    if (ImGui::Checkbox("Restart on apply", &autoRestart))
+    if (ImGui::Checkbox("Apply at once", &autoRestart))
         Submit(autoRestart ? "autorestart on" : "autorestart off");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Applying restarts the running mission with the new character.\n"
-                          "Off: it applies from the next level start. [Debug] AutoRestart in settings.ini.");
+        ImGui::SetTooltip("Apply changes your character at once, where you stand (or, when that cannot be\n"
+                          "done, restarts the mission with it). Off: from the next level start.\n"
+                          "[Debug] AutoRestart in settings.ini.");
     ImGui::TextDisabled("%s", command.c_str());
     ImGui::SeparatorText("Spawn");
     SpawnArea(picks);
