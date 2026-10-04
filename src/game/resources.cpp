@@ -382,6 +382,9 @@ std::unordered_map<std::string, std::string> g_Aliases;
 
 std::string AliasOf(const std::string& wanted)
 {
+    const std::string original = PrivateBodyOriginal(wanted);
+    if (original != wanted)
+        return original;
     std::lock_guard<std::mutex> lock(g_AliasLock);
     const auto it = g_Aliases.find(wanted);
     return it != g_Aliases.end() ? it->second : std::string();
@@ -942,6 +945,11 @@ bool DeclareFromDisc(uint8_t* scene, const EnginePath* path, int typeId, const P
     const PakIndex* owner = nullptr;
     const PakIndex::Entry* entry = FindElsewhere(nullptr,
         [&](const PakIndex* index) { return index->FindStemWithData(stem, uint32_t(typeId)); }, owner);
+    if (!entry && PrivateBodyOriginal(stem) != stem) {
+        const std::string original = PrivateBodyOriginal(stem);
+        entry = FindElsewhere(nullptr,
+            [&](const PakIndex* index) { return index->FindStemWithData(original, uint32_t(typeId)); }, owner);
+    }
     if (!entry && typeId == kAnimationType) {
         const std::string alias = AliasOf(stem + ".bnm");
         if (!alias.empty())
@@ -1298,6 +1306,27 @@ void* __fastcall SceneLoadHook(uint8_t* scene, void* edx, const EnginePath* path
 }
 
 } // namespace
+
+std::string PrivateBodyName(const std::string& mesh, const std::string& className)
+{
+    uint32_t hash = 0x811C9DC5;
+    for (char c : className) {
+        hash ^= uint8_t(tolower(static_cast<unsigned char>(c)));
+        hash *= 0x01000193;
+    }
+    char tag[16];
+    sprintf_s(tag, "%s%08x", kPrivateBodyTag, hash);
+    return mesh + tag;
+}
+
+std::string PrivateBodyOriginal(const std::string& name)
+{
+    const size_t at = name.find(kPrivateBodyTag);
+    const size_t tagLength = std::strlen(kPrivateBodyTag) + 8;
+    if (at == std::string::npos || name.size() < at + tagLength)
+        return name;
+    return name.substr(0, at) + name.substr(at + tagLength);
+}
 
 bool DiscHasResource(const std::string& lowerName)
 {

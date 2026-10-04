@@ -102,9 +102,8 @@ replaces yours as if the level had started with it (camera, controls, health and
 portrait follow it; your old character is removed from the level, not hidden). The console prints
 `changed at once`. When that cannot be done, it prints why and restarts the mission with the new
 character instead, as the pause menu's Restart Mission does: from the mission's start, not your last
-checkpoint. That happens when the new character would wear a body another class already wore in
-this level (`player - mesh obi`, then `player IObiwan`: see *Spawning* for why), or for a class
-without a body on the disc. `autorestart off` (or `[Debug] AutoRestart=0` in `settings.ini`) keeps
+checkpoint. That happens when a spawned character's class already wore the body in this level (see
+*Spawning*), or for a class without a body on the disc. `autorestart off` (or `[Debug] AutoRestart=0` in `settings.ini`) keeps
 the mission running instead; the change then applies from the next level start or restart
 (`restart`). Outside a mission (in the menus, or while a level loads) a change simply waits for the
 next level.
@@ -163,7 +162,9 @@ its file or `folder\file` (`obi`, `obi\obi`). Only bodies are offered: the disc'
 meshes (dismembered limbs, debris, vehicles, the lightning effect) crash the game as a body and are
 refused. A body made for one character has its skeleton's animations bound for that character; on
 another class the game rebuilds that binding (into `cache\disc\`, safe to delete), and the few
-animations no character has (a cut part of Anakin's force jump) borrow a neighbouring one. Bodies
+animations no character has (a cut part of Anakin's force jump) borrow a neighbouring one. You wear
+your own copy of another class's body, so the level's characters in that body (the clones, when you
+wear the clone trooper body) keep their own animations. Bodies
 shaped like the class's look right (any human on a Jedi); others may stretch or twist (C-3PO on
 Anakin works, but moves like Anakin). `mesh off` goes back to the costume's own body.
 
@@ -191,11 +192,10 @@ character the level designers gave a team of theirs (most have none) then sees y
 it shares one. Spawned characters stay until the mission restarts or the level changes, or until
 `despawn` removes them (those still in the level, the dead ones too if their bodies remain). Tested with
 100 at once (about 7 MiB more memory, no errors); large crowds lower the frame rate. A spawn
-cannot wear another body (`mesh`), and a class whose body you are wearing as another class is
-refused, as is a body another class wore earlier in the level (yours, a spawn's, or a character you
-played before a live change): a body's animation binding belongs to its mesh, is built for the first
-class in it and stays for the level, and another class's animations in it break (the same holds for
-`player ... mesh` when the level already has a character of another class in that body).
+cannot wear another body (`mesh`). A spawn whose costume's body another class wore earlier in this
+level as its own costume is refused: a body's animation binding is built for the classes in it and
+stays for the level. Bodies you wear as another class are your own copies, so they never get in the
+way.
 
 **Versus.** `player` is for story levels. In Versus it does not apply costumes, texture sets or meshes
 yet; use `duelist` (above) to choose the fighters.

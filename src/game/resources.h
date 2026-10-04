@@ -17,6 +17,16 @@ void InstallResourceHooks(const std::wstring& gameData, const std::wstring& mods
 // "cinematics\introcamera\anakin_intro_cam.cin") with its data.
 bool DiscHasResource(const std::string& lowerName);
 
+// A body (a mesh under meshes\chars) worn by a class it was not made for gets a private name, so that
+// its animation binding (built per mesh, for the classes wearing it) is its own: the level's characters
+// in the original keep theirs. The private name is the original's with a tag and the class's hash
+// ("clonetrooper\hordetrooper__pb1a2b3c4d"); everything named after it (the mesh, its binding, its
+// limbs) is served as the original's.
+constexpr const char* kPrivateBodyTag = "__pb";
+std::string PrivateBodyName(const std::string& mesh, const std::string& className);
+// The original name of a resource named after a private body (unchanged for any other name).
+std::string PrivateBodyOriginal(const std::string& name);
+
 // True when mods\ (or cache\disc\) has a loose copy of `lowerName`, as above.
 bool HasLooseResource(const std::string& lowerName);
 

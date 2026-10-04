@@ -195,10 +195,16 @@ instead of being opened on the disc, and (b) the packer's "put the stream back" 
 **Shared bindings.** A body's animation binding (`<mesh>.ban`) is one resource per mesh, shared by every
 character wearing it; it is rebuilt for a class whose animations it lacks. Two classes in one body in
 the same level therefore fight over it, and the one rebuilt over crashes in its animation (0x663C5).
-The binding stays as long as the mesh is loaded, and the port keeps character meshes loaded for the
-level (see below), so the first class in a body owns it for the level. The port records the class of
-every body it places (spawns, live players, the player a live change replaced) and refuses another
-class in one of them; a spawn takes no other body.
+The level's own characters are in it too: a player in the clone trooper body as Anakin had the
+level's clones animate with Anakin's binding (Jedi moves on clones), then crash on an animation index
+it lacks (0x616D1). A body worn by a class none of whose costumes it is is therefore a **private
+copy**: the costume record names `<mesh>__pb<hash of the class>`
+(`clonetrooper\hordetrooper__pb6b3437b5`), which the port serves as the original (the mesh, its
+binding, anything named after it: `PrivateBodyOriginal`, `src/game/resources.cpp`), and whose
+binding the engine rebuilds and keeps under the private name. The binding also stays as long as the
+mesh is loaded, which the port keeps for the level (see below), so the port records the class of
+every body it places in a costume of its own (spawns, players) and refuses a spawn of another class
+in one; a spawn takes no other body.
 
 ## Changing the player live
 
@@ -240,7 +246,8 @@ The level's own player is held by nothing else, so destroying it would free its 
 character in that body (`player off` after a live change) then reloads the mesh under a model still
 bound to the old data (0x6754A). The port keeps a reference to every character mesh the level loads
 (`SceneLoadHook`, `src/game/resources.cpp`). With the mesh kept, its binding is kept too, so a body
-another class wore earlier in the level is left to a restart (see *Shared bindings*).
+another class wore earlier in the level as its own costume is left to a restart (see *Shared
+bindings*); bodies worn as private copies never are.
 
 The level's own player's class is recorded where the player is spawned (0xB1F90; the mission names
 it without the "I": `Anakin`), and its costume where the costume is chosen, for "each level's own".
@@ -306,8 +313,6 @@ back to starting the game process again; the character choice is handed to the n
 
 - **Carrying state over in a live change**: the new character starts with its class's health and
   Force, not the old player's; the old player's combat state (a grab, a saber lock) is not handed on.
-- **One body, two classes**: a body's binding could be rebuilt for a second class without breaking
-  the first if both bindings were kept (one per class rather than one per mesh).
 - **Versus**: costumes, texture sets and bodies for fighters need the fighter creation path
   (0x27B7D0 / 0xA2DE0) hooked like 0xB1DE1.
 - The four numbers in a costume list's header.

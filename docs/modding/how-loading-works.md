@@ -80,7 +80,8 @@ reserved when the level starts, because the engine keeps pointers into it.
   the port writes it to `cache\disc\<same path>` and reads it from there (also when the engine
   reads a binding straight back after rebuilding it: the rebuilt copy wins over any PAK's); it is
   safe to delete. A body worn by another class (`player <class> mesh <mesh>`) always gets such a
-  rebuild.
+  rebuild, of a private copy (`<mesh>__pb<number>`, served as the original), so the level's own
+  characters in that body keep their binding.
   Only `.ban` files are redirected. Declared resources a level loads directly from the disc (not
   from its own PAK) are also taken from other PAKs when the disc has no such file.
 - **Some resources are made by the port.** A resource no PAK has can be generated from another when

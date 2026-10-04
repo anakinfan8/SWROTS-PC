@@ -313,14 +313,21 @@ int Dress(uint8_t* character, int chosen, const std::string& costume, const std:
         const int count = VariantCount(list);
         const int slot = chosen >= 0 && chosen < count ? chosen : 0;
         const size_t size = kVariantRecords + (count + 1) * kVariantRecordSize;
-        owned.mesh = mesh;
+        // Another class's body (none of this class's costumes) is worn as a private copy; a body only
+        // under mods\ is no one else's.
+        bool own = false;
+        for (int i = 0; i < count && !own; ++i)
+            own = Lower(VariantMesh(list, i)) == Lower(mesh);
+        const char* className = *reinterpret_cast<const char* const*>(list);
+        owned.mesh = own || !DiscHasResource(Lower("meshes\\chars\\" + mesh + ".msh")) || !className
+            ? mesh : PrivateBodyName(mesh, className);
         owned.list.assign(list, list + size - kVariantRecordSize);
         owned.list.resize(size, 0); // the null record that ends it
         *reinterpret_cast<const char**>(owned.list.data() + kVariantRecords + slot * kVariantRecordSize + 4) =
             owned.mesh.c_str();
         list = owned.list.data();
         chosen = slot;
-        LOG_INFO("Characters: %s's mesh is %s", who, mesh.c_str());
+        LOG_INFO("Characters: %s's mesh is %s%s", who, mesh.c_str(), owned.mesh != mesh ? " (its own copy)" : "");
     }
     if (list && chosen >= 0 && chosen < VariantCount(list))
         LOG_INFO("Characters: %s's costume %s (%d)", who, VariantName(list, chosen), chosen);
@@ -1121,16 +1128,6 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
     uint8_t* object = CreateCharacter(name, costume, skin, mesh, who, error);
     if (!object)
         return false;
-    // A body's animation binding belongs to its mesh and is shared: a character of another class in the
-    // body the player wears would have it rebuilt for that class, and the player's animation would crash.
-    const uint8_t* list = *reinterpret_cast<uint8_t**>(object + kCharacterVariants);
-    const int costumeIndex = *reinterpret_cast<int*>(object + kCharacterCostume);
-    if (!g_PlayerMesh.empty() && list && costumeIndex >= 0 && costumeIndex < VariantCount(list) &&
-        Lower(VariantMesh(list, costumeIndex)) == Lower(g_PlayerMesh) && (!g_PlayerClass || _stricmp(g_PlayerClass, name) != 0)) {
-        error = std::string(name) + " wears " + g_PlayerMesh + ", the body you wear: another class in it would break "
-            "your animation (pick another costume)";
-        return false; // the object was never placed; the game does not see it
-    }
     RecordBody(g_Player);
     if (BodyBoundToAnotherClass(object)) {
         error = std::string(name) + " wears " + CharacterBody(object) + ", a body another class wore in this level "
