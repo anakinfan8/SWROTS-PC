@@ -917,8 +917,30 @@ constexpr LevelReference kLevelReferences[] = {
     { 0x0057E168, 0x05C, 0 },     // IInvisibleBrush
 };
 
+// Pages known readable or not during a scan (RepointPlayerReferences), so that following a pointer
+// into memory that is not there does not fault.
+std::unordered_map<uintptr_t, bool>* g_ReadablePages = nullptr;
+
+bool PageReadable(uintptr_t a)
+{
+    const uintptr_t page = a & ~uintptr_t(0xFFF);
+    if (g_ReadablePages) {
+        const auto it = g_ReadablePages->find(page);
+        if (it != g_ReadablePages->end())
+            return it->second;
+    }
+    MEMORY_BASIC_INFORMATION info{};
+    const bool readable = VirtualQuery(reinterpret_cast<const void*>(page), &info, sizeof(info)) == sizeof(info) &&
+        info.State == MEM_COMMIT && !(info.Protect & (PAGE_NOACCESS | PAGE_GUARD));
+    if (g_ReadablePages)
+        (*g_ReadablePages)[page] = readable;
+    return readable;
+}
+
 bool ReadGameDword(uintptr_t a, uint32_t& v)
 {
+    if (!PageReadable(a) || !PageReadable(a + 3))
+        return false;
     __try {
         v = *reinterpret_cast<const uint32_t*>(a);
         return true;
@@ -938,14 +960,77 @@ bool IsLevelReference(uintptr_t a, uintptr_t base, uint32_t into)
     return false;
 }
 
+// What `a` lies in: a character or one of its two AI objects, as each pair shows. A character points at
+// its AI controller (+0x9FC, 0x591910-based, which points back at it at +0x10 and holds the AI's target,
+// +0x41C, with the target's instance id at +0x418: 0x193D90) and at its AI data (+0xA00, 0x591C38-based,
+// back at +0x29C). Another character's pointers to the player (its target, an opponent) are the level's.
+constexpr uint32_t kCharacterAIData = 0xA00;
+struct AIPart { uint32_t inCharacter, owner; };
+constexpr AIPart kAIParts[] = { { 0x9FC, 0x10 }, { kCharacterAIData, 0x29C } };
+constexpr uint32_t kAITargetId = 0x418;
+
+// The game memory being scanned (RepointPlayerReferences), to follow only pointers into it.
+const std::vector<std::pair<uintptr_t, size_t>>* g_ScanRegions = nullptr;
+
+bool InScanRegions(uintptr_t a, size_t size)
+{
+    for (const auto& [base, length] : *g_ScanRegions)
+        if (a >= base && a + size <= base + length)
+            return true;
+    return false;
+}
+
+bool PointsTo(uintptr_t a, uintptr_t value)
+{
+    uint32_t v = 0;
+    return InScanRegions(a, 4) && ReadGameDword(a, v) && v == value;
+}
+
+// The character whose AI object `ai` is, or 0.
+uintptr_t AIDataOwner(uintptr_t ai)
+{
+    for (const AIPart& part : kAIParts) {
+        uint32_t owner = 0;
+        if (InScanRegions(ai + part.owner, 4) && ReadGameDword(ai + part.owner, owner) && owner > 0x10000 &&
+            PointsTo(owner + part.inCharacter, ai))
+            return owner;
+    }
+    return 0;
+}
+
+enum class Holder { None, Character, AIData };
+
+// Whether `a` lies in another character than `self` or in another's AI data (`start`: where it begins).
+// The nearest object start below `a` decides.
+Holder OtherCharacterHolding(uintptr_t a, uintptr_t base, const uint8_t* self, uintptr_t& start)
+{
+    for (uintptr_t o = 0; o < 0x1200 && o <= a - base; o += 4) {
+        start = (a & ~uintptr_t(3)) - o;
+        uint32_t ai = 0;
+        if (InScanRegions(start + kCharacterAIData, 4) && ReadGameDword(start + kCharacterAIData, ai) && ai > 0x10000 &&
+            AIDataOwner(ai) == start)
+            return start != uintptr_t(self) ? Holder::Character : Holder::None;
+        if (o < 0x800) {
+            if (const uintptr_t owner = AIDataOwner(start))
+                return owner != uintptr_t(self) ? Holder::AIData : Holder::None;
+        }
+    }
+    return Holder::None;
+}
+
 int RepointPlayerReferences(uint8_t* from, uint8_t* to)
 {
     std::vector<std::pair<uintptr_t, size_t>> regions = kernel::GameMemoryRegions();
     regions.push_back({ 0x00612BE0, 0x0096E000 - 0x00612BE0 }); // the image's .data and .bss
+    g_ScanRegions = &regions;
+    std::unordered_map<uintptr_t, bool> readable;
+    g_ReadablePages = &readable;
     const uint32_t old = uint32_t(uintptr_t(from)), fresh = uint32_t(uintptr_t(to));
+    const uint32_t oldId = *reinterpret_cast<const uint32_t*>(from + 4), freshId = *reinterpret_cast<const uint32_t*>(to + 4);
+    int ids = 0;
     const uintptr_t skipLo = uintptr_t(from), skipHi = skipLo + 0x1200;
     const uintptr_t newLo = uintptr_t(to), newHi = newLo + 0x1200;
-    int moved = 0;
+    int moved = 0, kept = 0;
     std::vector<uintptr_t> focusLists;
     int portraits = 0;
     for (const auto& [base, size] : regions) {
@@ -961,17 +1046,26 @@ int RepointPlayerReferences(uint8_t* from, uint8_t* to)
                 ++portraits;
                 continue;
             }
+            if (v == oldId && oldId != 0) {
+                uintptr_t holder = 0;
+                if (OtherCharacterHolding(a, base, from, holder) == Holder::AIData && a - holder == kAITargetId) {
+                    *reinterpret_cast<uint32_t*>(a) = freshId;
+                    ++ids;
+                }
+                continue;
+            }
             if (v < old || v >= old + 0x1200 || (a >= skipLo && a < skipHi) || (a >= newLo && a < newHi))
                 continue;
             const uint32_t into = v - old;
-            // In the Xbox's contiguous memory (menus, the HUD among them): bindings to the player's values.
-            const bool binding = a >= 0x80000000u && into != 0;
-            if (binding)
-                LOG_INFO("Characters: a binding to the player +0x%X at %08X moved", into, uint32_t(a));
-            if (!binding && (into != 0 && into != kCharacterTransform))
+            if (into != 0 && into != kCharacterTransform)
                 continue;
-            if (!binding && !IsLevelReference(a, base, into))
+            uintptr_t holder = 0;
+            const Holder held = IsLevelReference(a, base, into) || into != 0 ? Holder::None
+                                                                              : OtherCharacterHolding(a, base, from, holder);
+            if (!IsLevelReference(a, base, into) && held == Holder::None) {
+                ++kept;
                 continue;
+            }
             uint32_t vtable = 0;
             if (ReadGameDword(a - 0x44, vtable) && vtable == kFocusListVtable)
                 focusLists.push_back(a - 0x44);
@@ -990,15 +1084,13 @@ int RepointPlayerReferences(uint8_t* from, uint8_t* to)
             (*reinterpret_cast<void* const* const*>(object))[5]);
         resolve(object, nullptr, *reinterpret_cast<uint32_t*>(object + 4));
     }
-    LOG_INFO("Characters: %zu camera focus list(s) resolved again, %d HUD portrait(s) to pick again",
-        focusLists.size(), portraits);
+    LOG_INFO("Characters: %zu camera focus list(s) resolved again, %d HUD portrait(s) to pick again, %d AI "
+        "target id(s) moved, %d other pointer(s) to the old player left (its own parts)", focusLists.size(), portraits, ids, kept);
+    g_ScanRegions = nullptr;
+    g_ReadablePages = nullptr;
     return moved;
 }
 
-// The class each body (mesh) was bound to in this level, by the characters the port placed and the
-// players it replaced. A body's animation binding (its .ban) is built for the first class wearing it
-// and stays while the mesh is loaded, which the port keeps for the level (see resources.cpp): another
-// class in it would animate with the wrong binding (0x663C5: an animation index it does not have).
 // Whether controller 0's entry in the input manager ([0x68D4F4] +0x1D8[0], its character at +0x7C)
 // holds this character.
 bool ControllerBoundTo(const uint8_t* character)
@@ -1008,6 +1100,10 @@ bool ControllerBoundTo(const uint8_t* character)
     return !entry || *reinterpret_cast<const uint8_t* const*>(entry + 0x7C) == character;
 }
 
+// The class each body (mesh) was bound to in this level, by the characters the port placed and the
+// players it replaced. A body's animation binding (its .ban) is built for the first class wearing it
+// and stays while the mesh is loaded, which the port keeps for the level (see resources.cpp): another
+// class in it would animate with the wrong binding (0x663C5: an animation index it does not have).
 std::string CharacterBody(const uint8_t* character)
 {
     const uint8_t* list = *reinterpret_cast<uint8_t* const*>(character + kCharacterVariants);
@@ -1204,7 +1300,6 @@ uint8_t* ReplacedPlayerObject()
 // A character's teams: its AI data (character +0xA00) holds "Team Setting" (TAIData +0x214, a bit per
 // team A-H), which the AI reads to tell friend from foe (e.g. 0x18FA8C, which makes the player and
 // another character enemies by giving the player every team the other is not in).
-constexpr uint32_t kCharacterAIData = 0xA00;
 constexpr uint32_t kAITeams = 0x214;
 
 bool CharacterTeams(const uint8_t* character, uint32_t& teams)

@@ -225,9 +225,14 @@ player instead (`game::ReplacePlayer`), as if the level had started with the new
    holders, matched by vtable and field: the camera's focus lists (TCamComPrimaryFocusList, vtable
    0x56CB0C, +0x44), camera controls, the level's triggers and points. The focus lists cache the
    target's node (entries of 0x70 bytes: +0 "is the player", +4 the target, +8 the node from the
-   target's vfunc +0x5C); each list resolves its entries again with its vfunc 5 (0xC4650). Bindings
-   in contiguous memory (0x8xxxxxxx: HUD and menu bindings pointing into the player, e.g. +0x168 and
-   +0xD52) move with their offset.
+   target's vfunc +0x5C); each list resolves its entries again with its vfunc 5 (0xC4650). Other
+   characters' pointers to the player move too: an opponent's (+0x3B8 and nearby) and its AI's. A
+   character has two AI objects, each pointing back at it: the AI controller (character +0x9FC,
+   back at +0x10; its target at +0x41C with the target's instance id at +0x418, set by 0x193D90) and
+   the AI data (+0xA00, back at +0x29C). A pointer is taken as theirs only when the nearest object
+   start below it is such a pair, so stray values are never changed (an earlier rule moving any value
+   that looked like a pointer into the player in contiguous memory changed texture data). An enemy
+   still aiming at the removed player crashed in its AI (0x180C31, 0x193889).
 4. The game manager (`[0x7EB964]`) knows the players by instance id (object +4), per slot (+0x2A4,
    +0x1E4 slots); the HUD's bars find the player through it (0x27AB30). The ids are moved over. The
    HUD portrait objects (HudVitals, vtable 0x5A82B0) keep the face they picked: +0xD "picked" and
