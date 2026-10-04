@@ -992,6 +992,15 @@ int RepointPlayerReferences(uint8_t* from, uint8_t* to)
 // players it replaced. A body's animation binding (its .ban) is built for the first class wearing it
 // and stays while the mesh is loaded, which the port keeps for the level (see resources.cpp): another
 // class in it would animate with the wrong binding (0x663C5: an animation index it does not have).
+// Whether controller 0's entry in the input manager ([0x68D4F4] +0x1D8[0], its character at +0x7C)
+// holds this character.
+bool ControllerBoundTo(const uint8_t* character)
+{
+    const uint8_t* input = *reinterpret_cast<uint8_t* const*>(uintptr_t(0x0068D4F4));
+    const uint8_t* entry = input ? *reinterpret_cast<uint8_t* const*>(input + 0x1D8) : nullptr;
+    return !entry || *reinterpret_cast<const uint8_t* const*>(entry + 0x7C) == character;
+}
+
 std::string CharacterBody(const uint8_t* character)
 {
     const uint8_t* list = *reinterpret_cast<uint8_t* const*>(character + kCharacterVariants);
@@ -1073,9 +1082,17 @@ bool ReplacePlayer(std::string& error)
                 id = freshId;
         }
     }
-    // The old player goes, as the game removes its own objects.
+    // The old player goes, as the game removes its own objects. Its controller slot (+0x43C) is let go
+    // first: removing a character unbinds its slot (0x8ADD0 with -1), which would clear the controller
+    // entry's character (input manager [0x68D4F4] +0x1D8[slot] +0x7C), now the new player's; moves
+    // that read the stick's direction then crashed on it (0x89329).
     *reinterpret_cast<int*>(old + kCharacterControl) = 0;
+    reinterpret_cast<void(__fastcall*)(uint8_t*, void*, int)>(uintptr_t(kBindController))(old, nullptr, -1);
     DestroyObject(old);
+    if (!ControllerBoundTo(fresh)) {
+        LOG_WARN("Characters: controller 0 lost the new player; bound again");
+        reinterpret_cast<void(__fastcall*)(uint8_t*, void*, int)>(uintptr_t(kBindController))(fresh, nullptr, 0);
+    }
     g_ReplacedPlayer = old;
     g_Player = fresh;
     g_PlayerVtable = *reinterpret_cast<uint32_t*>(fresh);

@@ -9,6 +9,9 @@
 #include <Xinput.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <iterator>
 #include <atomic>
 #include <cstring>
 #include <mutex>
@@ -199,6 +202,41 @@ static void ReadKeyboard(XGamepad& g)
     if (k.ry) g.sThumbRY = k.ry;
 }
 
+// For unattended tests: SWROTS_TEST_INPUT=<seconds> plays player 1 like a busy player from that many
+// seconds after the first input read on: the left stick turning round, and A, B, X, Y, the triggers
+// and the white and black buttons pressed in turn (never Start or Back). The variable clears itself,
+// so a relaunched process does not inherit it.
+static double g_TestInputFrom = -1.0;
+
+static void ReadTestInput(XGamepad& g)
+{
+    static ULONGLONG start = 0;
+    static bool read = false;
+    if (!read) {
+        read = true;
+        char value[32] = {};
+        if (GetEnvironmentVariableA("SWROTS_TEST_INPUT", value, sizeof(value))) {
+            g_TestInputFrom = atof(value);
+            SetEnvironmentVariableA("SWROTS_TEST_INPUT", nullptr);
+            LOG_INFO("Input: scripted player 1 from %.1f s", g_TestInputFrom);
+        }
+        start = GetTickCount64();
+    }
+    if (g_TestInputFrom < 0)
+        return;
+    const double t = double(GetTickCount64() - start) / 1000.0 - g_TestInputFrom;
+    if (t < 0)
+        return;
+    const double angle = t * 1.3;
+    g.sThumbLX = SHORT(std::cos(angle) * 30000.0);
+    g.sThumbLY = SHORT(std::sin(angle) * 30000.0);
+    // A press of 0.15 s every 0.4 s, cycling A, X, X, Y, B, right trigger, left trigger, white, black.
+    static const int kOrder[] = { 0, 2, 2, 3, 1, 7, 6, 5, 4 };
+    const int step = int(t / 0.4);
+    if (t - step * 0.4 < 0.15)
+        g.bAnalogButtons[kOrder[step % int(std::size(kOrder))]] = 0xFF;
+}
+
 // ---------------------------------------------------------------------------
 // Free camera
 // ---------------------------------------------------------------------------
@@ -340,8 +378,10 @@ static DWORD __stdcall XbInputGetState(HANDLE device, XInputState* state)
     XGamepad g = {};
     if (index != 0 || !g_HoldPlayer) { // the free camera has player 1's input
         ReadHostPad(index, g);
-        if (index == 0)
+        if (index == 0) {
             ReadKeyboard(g);
+            ReadTestInput(g);
+        }
     }
     if (std::memcmp(&g, &port->last, sizeof(g)) != 0) {
         port->last = g;

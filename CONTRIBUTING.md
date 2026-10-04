@@ -69,7 +69,11 @@ process), `SWROTS_DUELISTS=<slot>=<class>[,...]` (the console's `duelist` change
 console's `player` from the start, e.g. `IVader` or `"IAnakin duel"`; `-` for the class keeps each
 level's own, e.g. `"- mesh obi"`; the port also sets it itself when a restart falls back to a new
 process, to keep the player's choice), `SWROTS_FREECAM=<seconds>` (turns the free camera on that long
-after the start, e.g. in a duel booted from `Default_Xbox.cfg`).
+after the start, e.g. in a duel booted from `Default_Xbox.cfg`), `SWROTS_TEST_INPUT=<seconds>` (from
+that many seconds after the start, player 1 plays by itself like a busy player: the left stick turning
+round and the face buttons, triggers and white and black buttons pressed in turn, never Start or Back;
+for testing what only happens while the player moves and fights), `SWROTS_COMMANDS="<seconds>:<command>;..."` (runs debug console
+commands that many seconds after the start, e.g. `"9:player IVader;12:spawn ICloneTrooper enemy;15:despawn"`).
 
 ## Finding your way around
 

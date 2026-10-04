@@ -226,7 +226,12 @@ player instead (`game::ReplacePlayer`), as if the level had started with the new
    +0x1E4 slots); the HUD's bars find the player through it (0x27AB30). The ids are moved over. The
    HUD portrait objects (HudVitals, vtable 0x5A82B0) keep the face they picked: +0xD "picked" and
    +0xC "gave up" are cleared, and they pick the new class's face on the next frame.
-5. The old player is removed as the game removes its own objects: deactivated (vfunc +0xB0: it
+5. The old player lets go of its controller slot first (0x150580 with -1). Removing a character
+   unbinds its slot (0x8ADD0 with -1: the input manager `[0x68D4F4]` +0x1D8[slot] entry's character,
+   +0x7C, is cleared), and the old player still held slot 0 (its +0x43C), now the new player's: the
+   input then had no character, and the first move reading the stick's direction relative to it
+   crashed (0x89329). The port checks the entry after the swap.
+6. The old player is removed as the game removes its own objects: deactivated (vfunc +0xB0: it
    leaves the level's lists, such as the Jedi deflecting projectiles, 0x7EAAF0; without it a
    projectile's deflection check crashes at 0x26F14A), then deleted (0xA2FE0: vfunc +0x1CC, then
    `TManager_Object::Delete`, 0xB5840).
