@@ -175,7 +175,8 @@ names its textures.
 
 **Saber colour.** `saber red` (or `green`, `blue`, `purple`, or any colour as `saber 255 128 0`) gives
 the player's saber its own colour at once, without a restart; other characters keep theirs, and
-power-ups no longer change it. It lasts until the game is closed (`saber off` gives the game's colours
+power-ups no longer change it, nor do the scripted parts of a level that colour the sabers themselves (the
+Mustafar duel's cutscenes and saber locks). It lasts until the game is closed (`saber off` gives the game's colours
 back from the next level start). The four names are the game's own tuned colours. Only characters
 with sabers (the Jedi-like classes) take it. The game's own `sabercolor` (below) is different: it
 redefines a colour for every saber that has it, so `sabercolor blue 255 0 0` turns every blue saber

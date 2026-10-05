@@ -250,7 +250,12 @@ bool HasSaberColor(uint8_t* character)
 
 // Gives the player's sabers the chosen colour (or, with none, nothing: they keep theirs until the
 // next level start).
-void ApplySaberColor()
+// `onlyChanged`: only sabers whose colour (saber +0x814, three floats, as SetColor stores it) is not the
+// chosen one. Scripted parts of a level (the Mustafar duel's cutscenes and saber locks) colour the
+// sabers themselves, so the player's are checked every frame.
+constexpr uint32_t kSaberColor = 0x814;
+
+void ApplySaberColor(bool onlyChanged = false)
 {
     if (!PlayerAlive() || !HasSaberColor(g_Player))
         return;
@@ -263,6 +268,8 @@ void ApplySaberColor()
             continue;
         const uint32_t vtable = *reinterpret_cast<uint32_t*>(weapon);
         if (std::find(std::begin(kSaberVtables), std::end(kSaberVtables), vtable) == std::end(kSaberVtables))
+            continue;
+        if (onlyChanged && std::memcmp(weapon + kSaberColor, g_SaberColor, sizeof(g_SaberColor)) == 0)
             continue;
         const auto setColor = reinterpret_cast<void(__fastcall*)(uint8_t*, void*, const float*)>(
             reinterpret_cast<void* const*>(uintptr_t(vtable))[kSaberSetColor / 4]);
@@ -967,7 +974,8 @@ bool IsLevelReference(uintptr_t a, uintptr_t base, uint32_t into)
 constexpr uint32_t kCharacterAIData = 0xA00;
 struct AIPart { uint32_t inCharacter, owner; };
 constexpr AIPart kAIParts[] = { { 0x9FC, 0x10 }, { kCharacterAIData, 0x29C } };
-constexpr uint32_t kAITargetId = 0x418;
+constexpr uint32_t kDuelMasterCameraVtable = 0x005B4DC0; // IMasterCameraVader
+constexpr uint32_t kMasterCameraTargetId = 0x23C;
 
 // The game memory being scanned (RepointPlayerReferences), to follow only pointers into it.
 const std::vector<std::pair<uintptr_t, size_t>>* g_ScanRegions = nullptr;
@@ -1046,9 +1054,19 @@ int RepointPlayerReferences(uint8_t* from, uint8_t* to)
                 ++portraits;
                 continue;
             }
+            // The player's instance id (object +4), which the level's objects keep beside their pointer
+            // to it (an object reference: pointer, then id) and look the player up by: in the level's
+            // references (ICharacterGoto +0x1F4, the focus lists' +0x48, ICameraControl +0x278), the
+            // duel's master camera (IMasterCameraVader +0x23C: it follows the id; with the old one it
+            // stayed where it was until the next cutscene), and other characters and their AI (an
+            // opponent's targets; the AI's at +0x418).
             if (v == oldId && oldId != 0) {
                 uintptr_t holder = 0;
-                if (OtherCharacterHolding(a, base, from, holder) == Holder::AIData && a - holder == kAITargetId) {
+                uint32_t vtable = 0;
+                if (IsLevelReference(a - 4, base, 0) ||
+                    (a >= base + kMasterCameraTargetId && ReadGameDword(a - kMasterCameraTargetId, vtable) &&
+                        vtable == kDuelMasterCameraVtable) ||
+                    OtherCharacterHolding(a, base, from, holder) != Holder::None) {
                     *reinterpret_cast<uint32_t*>(a) = freshId;
                     ++ids;
                 }
@@ -1084,8 +1102,8 @@ int RepointPlayerReferences(uint8_t* from, uint8_t* to)
             (*reinterpret_cast<void* const* const*>(object))[5]);
         resolve(object, nullptr, *reinterpret_cast<uint32_t*>(object + 4));
     }
-    LOG_INFO("Characters: %zu camera focus list(s) resolved again, %d HUD portrait(s) to pick again, %d AI "
-        "target id(s) moved, %d other pointer(s) to the old player left (its own parts)", focusLists.size(), portraits, ids, kept);
+    LOG_INFO("Characters: %zu camera focus list(s) resolved again, %d HUD portrait(s) to pick again, %d "
+        "instance id(s) moved, %d other pointer(s) to the old player left (its own parts)", focusLists.size(), portraits, ids, kept);
     g_ScanRegions = nullptr;
     g_ReadablePages = nullptr;
     return moved;
@@ -1276,6 +1294,8 @@ bool InfiniteForce()
 
 void PlayerFrame()
 {
+    if (g_SaberColorSet)
+        ApplySaberColor(true);
 
     // Infinite Force: the player's Force kept at its maximum (Jedi-like characters have it).
     if (g_InfiniteForce && PlayerAlive() && HasSaberColor(g_Player))

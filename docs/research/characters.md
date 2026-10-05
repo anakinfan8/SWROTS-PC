@@ -233,7 +233,12 @@ player instead (`game::ReplacePlayer`), as if the level had started with the new
    start below it is such a pair, so stray values are never changed (an earlier rule moving any value
    that looked like a pointer into the player in contiguous memory changed texture data). An enemy
    still aiming at the removed player crashed in its AI (0x180C31, 0x193889).
-4. The game manager (`[0x7EB964]`) knows the players by instance id (object +4), per slot (+0x2A4,
+4. The level's objects keep the player as a reference of two parts, a pointer and then its
+   instance id (object +4), and some look it up by the id: the id moves with each pointer moved
+   (ICharacterGoto +0x1F4, the focus lists' +0x48, ICameraControl +0x278), and so do ids in other
+   characters and their AI. The duel levels' master camera (IMasterCameraVader, 0x5B4DC0) follows
+   the id at +0x23C alone; with the old one it stayed where it was until the next cutscene.
+   The game manager (`[0x7EB964]`) knows the players by instance id (object +4), per slot (+0x2A4,
    +0x1E4 slots); the HUD's bars find the player through it (0x27AB30). The ids are moved over. The
    HUD portrait objects (HudVitals, vtable 0x5A82B0) keep the face they picked: +0xD "picked" and
    +0xC "gave up" are cleared, and they pick the new class's face on the next frame.
