@@ -63,8 +63,16 @@ bool ClassHasBody(const char* className);
 // takes its class's own AI and teams. False with `error` set when it cannot (no mission running, an
 // unknown or cut class).
 enum class SpawnSide { Default, Ally, Enemy };
+// A spawn's behaviour: one of the game's AI controllers (its AI data's "Controller"), or 0 for its
+// class's own. Those that need no level data (a patrol route, a goto point) are offered.
+struct SpawnBehaviour {
+    const char* name;        // as the console takes it
+    int controller;          // the controller type (TGCoreInterface's controller factory, 0x1365E0)
+    const char* description;
+};
+const std::vector<SpawnBehaviour>& SpawnBehaviours();
 bool SpawnCharacter(const char* className, const std::string& costume, const std::string& skin,
-    const std::string& mesh, SpawnSide side, std::string& error);
+    const std::string& mesh, SpawnSide side, int behaviour, std::string& error);
 
 // The running level's player, for display: its class (type name), costume, position and heading
 // (degrees about the up axis). `valid` is false outside a level.
@@ -79,6 +87,8 @@ struct PlayerInfo {
     float power = 0, maxPower = 0;
 };
 PlayerInfo CurrentPlayer();
+// Every character in the running level (the player, the level's, spawned ones), alive or dead.
+std::vector<uint8_t*> LevelCharacters();
 // Sets the running level's player's maximum health and fills it (a clone trooper has a few hits' worth).
 void SetPlayerMaxHealth(float health);
 // The running level's player object, or null (for research tools such as `peek`).

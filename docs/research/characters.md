@@ -292,13 +292,29 @@ without it, none with it, for 0.3 MiB of Xbox memory and 1.9 MiB of the port's.
 
 ## Sides
 
-A character's AI data is at **+0xA00**; its "Team Setting" (a bit per team A-H, 0x1-0x80) at AI data
-**+0x214**. It is 0 for every character checked (the player, clones, droids, Jedi, spawned or placed):
-by default the classes decide who fights whom. When a character weighs another (0x18F451), and both
-have teams, a shared bit makes them allies and none makes them enemies; with either at 0 the class
-rules decide. 0x18FA8C turns the player into another's enemy by giving the player every team the other
-lacks. The port's `spawn ... ally|enemy` gives the player the bit 0x8000 and the spawn 0x8000 (ally) or
-0x4000 (enemy), outside the designers' A-H. Character +0x3F4 is a category, not a side: 1 the player,
+A character's AI data (`AIData.cpp`, property names from its Prop_Serialize at 0x19CF00 onwards) is
+embedded at character **+0xBB8** and pointed at by **+0xA00**; it points back at +0x29C. A second AI
+object, the AI controller (+0x9FC, back at +0x10), holds the current target (+0x41C, with its instance
+id at +0x418). The side is the AI data's **"Target Player"** (+0x50; with +0x1C set it counts as a side):
+the level's enemies have it, the player and its allies not. "Is that character my enemy?" (0x18F3F0,
+thiscall on the AI controller): with the player, the character's own "Target Player" (0x18F300); with
+teams ("Team Setting" +0x214, a bit per team A-H; "Teams Ignore Player Unless Attacked" +0x218), a
+differing "Target Player" makes enemies, else a shared bit makes friends and an other without teams is
+no enemy; without teams, a differing "Target Player" makes enemies, then the class's "Enemies" list
+(+0x20; "Preferred Enemies" +0x38). The level's characters have no teams. A spawned hero keeps its
+class's "Target Player" (set: your enemy), so an ally that only had a team stayed on the level
+enemies' side: they ignored each other, and it fought back when hit. The port's `spawn ... ally|enemy`
+sets "Target Player" (0 for an ally, 1 for an enemy) and gives the player and its allies the team bit
+0x8000, its enemies 0x4000, outside the designers' A-H.
+
+**Behaviours.** The AI data's "Controller" (+0x08) is the AI controller type the character gets when it
+is placed, built by TGCoreInterface's factory (0x1365E0, thiscall `(type, owner, info)`): 1 Pursue,
+2 Attack, 3 Idle, 4 Patrol, 5 Roam, 6 Stalk, 7 Wall, 8 Goto, 9 GiveItem, 14 Follow, 15 RunAway. A level
+gives a character an info object with the controller's settings (TAIFollowControllerInfo: "Follow This
+Character" +0x94); a Follow controller built without one follows the player (0x183930). Patrol, Goto,
+Wall and GiveItem need the level's data (a route, a point, a wall, an item). The AI data also has a
+formation system ("Formation Data": "Can Join Formations", "Target What Leader Targets", "Formation
+Members"), not used by the port. Character +0x3F4 is a category, not a side: 1 the player,
 0x10 troops (clones and droids alike), 0x08 duelists (Jedi, Vader); the AI keeps a copy at +0x3FC.
 
 ## Health and Force

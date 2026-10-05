@@ -239,12 +239,13 @@ std::string PlayerCommand(const CharacterPicks& picks)
     return line;
 }
 
-// The Characters tab's Spawn area: the Play-as picks (class, costume, texture set; not the body, whose
-// animation binding would be shared), how many and on which side, then Spawn.
+// The Characters tab's Spawn area: the Play-as picks (class, costume, texture set, body), how many, on
+// which side and with which behaviour (game::SpawnBehaviours), then Spawn.
 void SpawnArea(const CharacterPicks& picks)
 {
     static int count = 1;
     static int side = 0;
+    static int behaviour = 0; // 0: the class's own, else 1 + an index into game::SpawnBehaviours()
     const float width = ImGui::GetContentRegionAvail().x / 4.0f;
     ImGui::SetNextItemWidth(width * 0.6f);
     ImGui::SliderInt("How many##spawn", &count, 1, 5);
@@ -254,6 +255,24 @@ void SpawnArea(const CharacterPicks& picks)
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Default: as the game has it (clones and droids against Jedi, a hero as AI against\n"
                           "you). Ally fights for you, Enemy against you.");
+    ImGui::SameLine();
+    const auto& behaviours = game::SpawnBehaviours();
+    ImGui::SetNextItemWidth(width * 0.8f);
+    if (ImGui::BeginCombo("Behaviour##spawn", behaviour == 0 ? "Default" : behaviours[behaviour - 1].name)) {
+        if (ImGui::Selectable("Default", behaviour == 0))
+            behaviour = 0;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Its class's own");
+        for (size_t i = 0; i < behaviours.size(); ++i) {
+            if (ImGui::Selectable(behaviours[i].name, behaviour == int(i) + 1))
+                behaviour = int(i) + 1;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s", behaviours[i].description);
+        }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("What it does: follow fights at your side wherever you go (with Ally: an army).");
     ImGui::SameLine();
     std::string spawn = "spawn " + picks.className;
     if (!picks.costume.empty())
@@ -266,6 +285,8 @@ void SpawnArea(const CharacterPicks& picks)
         spawn += " ally";
     else if (side == 2)
         spawn += " enemy";
+    if (behaviour > 0)
+        spawn += std::string(" ") + behaviours[behaviour - 1].name;
     const bool canSpawn = !picks.className.empty() && game::PlayerInLevel();
     if (!canSpawn)
         ImGui::BeginDisabled();

@@ -997,6 +997,8 @@ bool IsLevelReference(uintptr_t a, uintptr_t base, uint32_t into)
 // +0x41C, with the target's instance id at +0x418: 0x193D90) and at its AI data (+0xA00, 0x591C38-based,
 // back at +0x29C). Another character's pointers to the player (its target, an opponent) are the level's.
 constexpr uint32_t kCharacterAIData = 0xA00;
+constexpr uint32_t kAIHasSide = 0x1C;     // AI data: set where "Target Player" counts as a side
+constexpr uint32_t kAITargetPlayer = 0x50; // AI data "Target Player": the player's enemy
 struct AIPart { uint32_t inCharacter, owner; };
 constexpr AIPart kAIParts[] = { { 0x9FC, 0x10 }, { kCharacterAIData, 0x29C } };
 constexpr uint32_t kDuelMasterCameraVtable = 0x005B4DC0; // IMasterCameraVader
@@ -1083,6 +1085,33 @@ size_t CollectCandidates(uintptr_t base, size_t size, uint32_t lo, uint32_t span
         at = to;
     }
     return count;
+}
+
+// Every character in the level: found through its AI data, which starts with kAIDataMarker and points
+// back at its character (+0x29C), which points at it (+0xA00).
+constexpr uint32_t kAIDataMarker = 0x00591C38;
+constexpr uint32_t kObjectById = 0x000A31F0;
+
+std::vector<uint8_t*> LevelCharacters()
+{
+    std::vector<uint8_t*> characters;
+    std::vector<uintptr_t> found(4096);
+    for (const auto& [base, size] : kernel::GameMemoryRegions()) {
+        const size_t n = CollectCandidates(base, size, kAIDataMarker, 1, kAIDataMarker, kAIDataMarker, found.data(), found.size());
+        for (size_t i = 0; i < n; ++i) {
+            uint32_t owner = 0, back = 0;
+            uint32_t id = 0;
+            // Still in the level: the object manager finds it by its instance id (ObjectById, 0xA31F0,
+            // cdecl (id)); a removed character's memory can stay as it was.
+            if (ReadGameDword(found[i] + 0x29C, owner) && owner > 0x10000 && ReadGameDword(owner + kCharacterAIData, back) &&
+                back == found[i] && ReadGameDword(owner + 4, id) &&
+                reinterpret_cast<uint8_t*(__cdecl*)(uint32_t)>(uintptr_t(kObjectById))(id) == reinterpret_cast<uint8_t*>(uintptr_t(owner)))
+                characters.push_back(reinterpret_cast<uint8_t*>(uintptr_t(owner)));
+        }
+    }
+    std::sort(characters.begin(), characters.end());
+    characters.erase(std::unique(characters.begin(), characters.end()), characters.end());
+    return characters;
 }
 
 int RepointPlayerReferences(uint8_t* from, uint8_t* to)
@@ -1271,6 +1300,10 @@ bool ReplacePlayer(std::string& error)
                 id = freshId;
         }
     }
+    // Its teams carry over (the port's own bit, which the player's allies share: see SpawnCharacter).
+    uint32_t teams = 0;
+    if (CharacterTeams(old, teams) && teams)
+        SetCharacterTeams(fresh, teams);
     // The old player goes, as the game removes its own objects. Its controller slot (+0x43C) is let go
     // first: removing a character unbinds its slot (0x8ADD0 with -1), which would clear the controller
     // entry's character (input manager [0x68D4F4] +0x1D8[slot] +0x7C), now the new player's; moves
@@ -1289,8 +1322,28 @@ bool ReplacePlayer(std::string& error)
     return true;
 }
 
+// The AI controllers (TGCoreInterface's factory, 0x1365E0: 1 Pursue, 2 Attack, 3 Idle, 4 Patrol,
+// 5 Roam, 6 Stalk, 7 Wall, 8 Goto, 9 GiveItem, 14 Follow, 15 RunAway). A character's comes from its
+// AI data's "Controller" (+0x8) when it is placed; a Follow controller without a leader of its own
+// follows the player (0x183930). Patrol, Goto, Wall and GiveItem need the level's data and are left out.
+constexpr uint32_t kAIController = 0x08;
+
+const std::vector<SpawnBehaviour>& SpawnBehaviours()
+{
+    static const std::vector<SpawnBehaviour> kBehaviours = {
+        { "follow", 14, "Follows you, fighting at your side" },
+        { "attack", 2, "Attacks its enemies" },
+        { "pursue", 1, "Chases its enemies down" },
+        { "stalk", 6, "Stalks its enemies from a distance" },
+        { "roam", 5, "Wanders about" },
+        { "idle", 3, "Stays where it is until it sees an enemy" },
+        { "runaway", 15, "Runs away from its enemies" },
+    };
+    return kBehaviours;
+}
+
 bool SpawnCharacter(const char* className, const std::string& costume, const std::string& skin,
-    const std::string& mesh, SpawnSide side, std::string& error)
+    const std::string& mesh, SpawnSide side, int behaviour, std::string& error)
 {
     if (!PlayerAlive()) {
         error = "no mission is running";
@@ -1316,6 +1369,10 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
             "(pick another costume, or restart the mission)";
         return false;
     }
+    if (behaviour > 0) {
+        if (uint8_t* ai = *reinterpret_cast<uint8_t**>(object + kCharacterAIData))
+            *reinterpret_cast<int32_t*>(ai + kAIController) = behaviour;
+    }
     // In front of the player, facing it: right and forward turned round.
     float m[16];
     std::memcpy(m, g_Player + kCharacterTransform, sizeof(m));
@@ -1330,12 +1387,20 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
     RecordBody(object);
     LOG_INFO("Characters: %s at %.0f %.0f %.0f", who, m[12], m[13], m[14]);
     if (side != SpawnSide::Default) {
-        // Teams decide only when both have some (0x18F451: a shared bit is an ally, none an enemy);
-        // the player gets the port's own bit, outside the level designers' teams A-H.
+        // A character's side is its AI data's "Target Player" (+0x50, set with "+0x1C"): the level's
+        // enemies have it, the player and its allies not, and two characters whose differ are enemies
+        // (0x18F3F0, either way round). A spawn has its class's default (a hero's: the player's enemy),
+        // so an ally gets it cleared. Teams decide too when both have some (a shared bit is a friend;
+        // with the player, 0x18F300): the player and its allies get the port's own bit, outside the
+        // level designers' teams A-H, and the port's enemies another.
         uint32_t playerTeams = 0;
         CharacterTeams(g_Player, playerTeams);
         SetCharacterTeams(g_Player, playerTeams | kPortPlayerTeam);
         SetCharacterTeams(object, side == SpawnSide::Ally ? kPortPlayerTeam : kPortEnemyTeam);
+        if (uint8_t* ai = *reinterpret_cast<uint8_t**>(object + kCharacterAIData)) {
+            ai[kAIHasSide] = 1;
+            ai[kAITargetPlayer] = side == SpawnSide::Ally ? 0 : 1;
+        }
         LOG_INFO("Characters: %s is %s", who, side == SpawnSide::Ally ? "an ally" : "an enemy");
     }
     ++g_SpawnedInLevel;

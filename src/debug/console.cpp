@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <iterator>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -240,7 +242,8 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  player [<class>|- [<costume>] [skin <set>] [mesh <mesh>|off]|off]");
     Print(LineKind::Output, "                           play as a character, costume or mesh (- = the level's own class)");
     Print(LineKind::Output, "  saber [red|green|blue|purple|<r> <g> <b>|off]  the player's saber colour, its own only");
-    Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy]  a character in front of the player");
+    Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy] [follow|attack|pursue|stalk|roam|idle|runaway]");
+    Print(LineKind::Output, "                           a character in front of the player");
     Print(LineKind::Output, "  infiniteforce [on|off]   your Force stays full");
     Print(LineKind::Output, "  memory                   the game's memory use, and the characters spawned");
     Print(LineKind::Output, "  despawn                  remove the characters you spawned");
@@ -498,14 +501,23 @@ void Saber(const std::vector<std::string>& words)
         Print(LineKind::Output, "  saber: the game's colours");
 }
 
-// spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy]. A body of another class's is worn
+// spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy] [<behaviour>]. A body of another class's is worn
 // as a private copy (see game::PrivateBodyName), so the characters wearing the original keep theirs.
 void Spawn(const std::vector<std::string>& words)
 {
     std::string costume, skin, mesh;
     game::SpawnSide side = game::SpawnSide::Default;
+    int behaviour = 0;
     std::vector<std::string> rest;
     for (size_t i = 1; i < words.size(); ++i) {
+        bool isBehaviour = false;
+        for (const game::SpawnBehaviour& b : game::SpawnBehaviours())
+            if (_stricmp(words[i].c_str(), b.name) == 0) {
+                behaviour = b.controller;
+                isBehaviour = true;
+            }
+        if (isBehaviour)
+            continue;
         if (_stricmp(words[i].c_str(), "ally") == 0 || _stricmp(words[i].c_str(), "enemy") == 0) {
             side = _stricmp(words[i].c_str(), "ally") == 0 ? game::SpawnSide::Ally : game::SpawnSide::Enemy;
             continue;
@@ -520,7 +532,7 @@ void Spawn(const std::vector<std::string>& words)
         }
     }
     if (rest.empty() || rest.size() > 2) {
-        Print(LineKind::Error, "spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy]");
+        Print(LineKind::Error, "spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy] [follow|attack|pursue|stalk|roam|idle|runaway]");
         return;
     }
     const char* name = game::RegisteredClassName(rest[0].c_str());
@@ -533,7 +545,7 @@ void Spawn(const std::vector<std::string>& words)
         return;
     }
     std::string error;
-    if (game::SpawnCharacter(rest[0].c_str(), rest.size() == 2 ? rest[1] : "", skin, mesh, side, error))
+    if (game::SpawnCharacter(rest[0].c_str(), rest.size() == 2 ? rest[1] : "", skin, mesh, side, behaviour, error))
         Print(LineKind::Output, "  spawned %s", name);
     else
         Print(LineKind::Error, "%s", error.c_str());
@@ -620,6 +632,78 @@ void Team(const std::vector<std::string>& words)
         const auto* w = reinterpret_cast<const uint32_t*>(ai + off);
         Print(LineKind::Output, "  ai+%02X: %08X %08X %08X %08X", off, w[0], w[1], w[2], w[3]);
     }
+}
+
+// characters: every character in the level, with its side (the AI's "Target Player": an enemy of
+// yours), teams, behaviour (the AI's controller), health, distance and what it is attacking.
+struct CharacterSummary {
+    char type[40];
+    char target[40];
+    uint32_t teams;
+    int controller;
+    bool targetsPlayer;
+    float health;
+    float distance;
+};
+
+void CopyName(char* out, size_t size, uint8_t* object)
+{
+    const auto typeName = reinterpret_cast<const char*(__fastcall*)(uint8_t*, void*)>((*reinterpret_cast<void* const* const*>(object))[3]);
+    const char* name = typeName(object, nullptr);
+    strncpy_s(out, size, name ? name : "?", _TRUNCATE);
+}
+
+// Reads one character's summary; false when it cannot be read (one being removed).
+bool Summarize(uint8_t* c, const uint8_t* player, CharacterSummary& out)
+{
+    __try {
+        CopyName(out.type, sizeof(out.type), c);
+        const uint8_t* ai = *reinterpret_cast<uint8_t* const*>(c + 0xA00);
+        out.teams = *reinterpret_cast<const uint32_t*>(ai + 0x214);
+        out.controller = *reinterpret_cast<const int32_t*>(ai + 0x08);
+        out.targetsPlayer = ai[0x50] != 0;
+        out.health = *reinterpret_cast<const float*>(c + 0x130);
+        const float* m = reinterpret_cast<const float*>(c + 0x150);
+        const float* pm = player ? reinterpret_cast<const float*>(player + 0x150) : m;
+        const float dx = m[12] - pm[12], dz = m[14] - pm[14];
+        out.distance = std::sqrt(dx * dx + dz * dz);
+        strcpy_s(out.target, "-");
+        // The AI controller's target (character +0x9FC, +0x41C).
+        if (const uint8_t* brain = *reinterpret_cast<uint8_t* const*>(c + 0x9FC)) {
+            if (uint8_t* target = *reinterpret_cast<uint8_t* const*>(brain + 0x41C)) {
+                if (target == player)
+                    strcpy_s(out.target, "you");
+                else
+                    CopyName(out.target, sizeof(out.target), target);
+            }
+        }
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+const char* ControllerName(int controller)
+{
+    static const char* const kNames[] = { "class", "pursue", "attack", "idle", "patrol", "roam", "stalk", "wall", "goto",
+        "giveitem", "?", "?", "?", "?", "follow", "runaway" };
+    return controller >= 0 && controller < int(std::size(kNames)) ? kNames[controller] : "?";
+}
+
+void Characters()
+{
+    uint8_t* player = game::PlayerObject();
+    int i = 0, listed = 0;
+    for (uint8_t* c : game::LevelCharacters()) {
+        CharacterSummary s{};
+        if (!Summarize(c, player, s))
+            continue;
+        ++listed;
+        Print(LineKind::Output, "  %2d %08X %-20s %-6s teams %04X %-8s health %5.0f dist %6.0f target %s", i++,
+            uint32_t(uintptr_t(c)), s.type, c == player ? "you" : s.targetsPlayer ? "enemy" : "ally", s.teams,
+            ControllerName(s.controller), s.health, s.distance, s.target);
+    }
+    Print(LineKind::Output, "  %d character(s)", listed);
 }
 
 // findrefs [spawned]: where the game keeps pointers to the player (or the last spawned character):
@@ -816,7 +900,7 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         command != "restart" && command != "autorestart" && command != "unlockprofile" &&
         command != "freecam" && command != "saber" && command != "spawn" && command != "peek" &&
         command != "infiniteforce" && command != "memory" && command != "team" &&
-        command != "findrefs" && command != "despawn")
+        command != "findrefs" && command != "despawn" && command != "characters")
         return false;
     Print(LineKind::Output, "> %s", line.c_str());
     if (command == "duelist") {
@@ -847,6 +931,8 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         Team(words);
     } else if (command == "findrefs") {
         FindRefs(words);
+    } else if (command == "characters") {
+        Characters();
     } else if (command == "despawn") {
         Print(LineKind::Output, "  %d spawned character(s) removed", game::RemoveSpawned());
     } else if (command == "unlockprofile") {
@@ -938,7 +1024,7 @@ void RunQueuedConsoleCommands()
             // and gone while a level loads).
             const std::vector<std::string> words = Words(line);
             static const char* const kStandalone[] = { "player", "variants", "meshes", "restart", "autorestart",
-                "duelist", "freecam", "saber", "spawn", "peek", "infiniteforce", "memory", "team", "findrefs", "despawn", "clear", "cls" };
+                "duelist", "freecam", "saber", "spawn", "peek", "infiniteforce", "memory", "team", "findrefs", "despawn", "characters", "clear", "cls" };
             const bool standalone = !words.empty() && std::any_of(std::begin(kStandalone), std::end(kStandalone),
                 [&](const char* c) { return _stricmp(words[0].c_str(), c) == 0; });
             if (standalone) {

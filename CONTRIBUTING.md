@@ -72,7 +72,8 @@ process, to keep the player's choice), `SWROTS_FREECAM=<seconds>` (turns the fre
 after the start, e.g. in a duel booted from `Default_Xbox.cfg`), `SWROTS_TEST_INPUT=<seconds>` (from
 that many seconds after the start, player 1 plays by itself like a busy player: the left stick turning
 round and the face buttons, triggers and white and black buttons pressed in turn, never Start or Back;
-for testing what only happens while the player moves and fights), `SWROTS_COMMANDS="<seconds>:<command>;..."` (runs debug console
+for testing what only happens while the player moves and fights; `<seconds>:run` only holds the stick
+forward), `SWROTS_COMMANDS="<seconds>:<command>;..."` (runs debug console
 commands that many seconds after the start, e.g. `"9:player IVader;12:spawn ICloneTrooper enemy;15:despawn"`).
 
 ## Finding your way around

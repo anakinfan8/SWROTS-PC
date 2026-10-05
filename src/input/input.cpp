@@ -204,9 +204,11 @@ static void ReadKeyboard(XGamepad& g)
 
 // For unattended tests: SWROTS_TEST_INPUT=<seconds> plays player 1 like a busy player from that many
 // seconds after the first input read on: the left stick turning round, and A, B, X, Y, the triggers
-// and the white and black buttons pressed in turn (never Start or Back). The variable clears itself,
+// and the white and black buttons pressed in turn (never Start or Back); "<seconds>:run" only holds
+// the stick forward. The variable clears itself,
 // so a relaunched process does not inherit it.
 static double g_TestInputFrom = -1.0;
+static bool g_TestInputRun = false; // "<seconds>:run": the stick held forward, no buttons
 
 static void ReadTestInput(XGamepad& g)
 {
@@ -217,6 +219,7 @@ static void ReadTestInput(XGamepad& g)
         char value[32] = {};
         if (GetEnvironmentVariableA("SWROTS_TEST_INPUT", value, sizeof(value))) {
             g_TestInputFrom = atof(value);
+            g_TestInputRun = std::strstr(value, ":run") != nullptr;
             SetEnvironmentVariableA("SWROTS_TEST_INPUT", nullptr);
             LOG_INFO("Input: scripted player 1 from %.1f s", g_TestInputFrom);
         }
@@ -227,6 +230,10 @@ static void ReadTestInput(XGamepad& g)
     const double t = double(GetTickCount64() - start) / 1000.0 - g_TestInputFrom;
     if (t < 0)
         return;
+    if (g_TestInputRun) {
+        g.sThumbLY = 30000;
+        return;
+    }
     const double angle = t * 1.3;
     g.sThumbLX = SHORT(std::cos(angle) * 30000.0);
     g.sThumbLY = SHORT(std::sin(angle) * 30000.0);
