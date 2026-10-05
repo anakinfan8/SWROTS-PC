@@ -59,6 +59,7 @@ An optional `[Debug]` section in `settings.ini`:
 | `MenuKey=~` | The key that opens the debug menu (`~`, `F1`-`F24`, `Insert`, a letter...) |
 | `DebugDisplays=1` | Lets the engine draw its debug displays: the fps counter (`fps=true` in `mods\vars_xbox.cfg`), the frame profiler and the memory display |
 | `AutoRestart=0` | Character changes in the debug menu (`player`) wait for the next level start instead of restarting the running mission |
+| `OptionalMoves=0` | Levels load only the moves their own characters use, as on the console (the default without the debug menu). With the debug menu it is on: every level loads its characters' optional moves (the duel moves among them: blocks against a lightsaber, the clashes that lead to a saber lock, some specials), so a character played or spawned where the level does not expect it has its whole move set. About 2 MiB more memory |
 | `FlightRecorder=1` | Keeps the last 3 seconds of frames; Ctrl+Shift+F10 saves them to `flight\` |
 | `TraceSdk=1` | Logs the game's calls into Xbox libraries (verbose) |
 | `LogResources=1` | Logs every resource the game loads, with the path a mod file must use |

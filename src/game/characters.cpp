@@ -615,8 +615,33 @@ const char* RegisteredClassName(const char* name)
     return nullptr;
 }
 
+// Optional moves. A character's behaviour sequences marked optional (the duel moves: blocks against a
+// saber, Block2_*; shunts and traps, the way into a saber lock; some specials) are loaded only in
+// levels whose characters use them; elsewhere a character in a level not made for it misses them
+// (the branch to one is refused, see fixes.cpp). The launch settings' developer switch
+// `optionalanims` (+0xE4, read once by the level loader, 0xB12E9: mov dl, [ecx + 0xE4]) has every
+// level load all of them, with their animations (from other levels' PAKs where needed: resources.cpp).
+// The port turns it on by changing that read to `mov dl, 1`.
+constexpr uint32_t kOptionalMovesRead = 0x000B12E9;
+constexpr uint8_t kOptionalMovesReadBytes[] = { 0x8A, 0x91, 0xE4, 0x00, 0x00, 0x00 };
+bool g_OptionalMoves = false;
+
+void EnableOptionalMoves(bool enabled)
+{
+    g_OptionalMoves = enabled;
+}
+
 void InstallCharacters()
 {
+    if (g_OptionalMoves) {
+        if (std::memcmp(reinterpret_cast<const void*>(uintptr_t(kOptionalMovesRead)), kOptionalMovesReadBytes,
+                sizeof(kOptionalMovesReadBytes)) == 0) {
+            static const uint8_t kMoveOne[] = { 0xB2, 0x01, 0x90, 0x90, 0x90, 0x90 }; // mov dl, 1
+            PatchBytes(kOptionalMovesRead, kMoveOne, sizeof(kMoveOne));
+        } else {
+            LOG_WARN("Characters: unexpected code at the optional moves read; levels load their usual moves");
+        }
+    }
     // Development aid: SWROTS_PLAYER=<class> from the start, for unattended tests; read at the first
     // boot only, so the console's choice survives reboots. The class name is checked when the
     // registry exists (it does not yet at boot), so it is used as given.

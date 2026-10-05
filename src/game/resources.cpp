@@ -1182,9 +1182,24 @@ bool __fastcall AnimationLookupHook(void* self, void* edx, void* script, void* c
 // An animation file name's stand-in, for one never made: a grapple move against one opponent,
 // <attacker>_<move>_<opponent>gr|gb_partN (anakin_atk_sse5_jdbrutegr_part2: Anakin's fifth combo's
 // finish on a Jedi brute, which the story never pairs but an unlocked profile does), takes the same
-// move's version against a Jedi (anakin_atk_sse5_jedigr_part2). Empty when there is no rule.
+// move's version against a Jedi (anakin_atk_sse5_jedigr_part2). A few optional animations the
+// classes name were never made either, and take a close relative's place (needed when a level loads
+// its characters' optional moves, see EnableOptionalMoves). Empty when there is no rule.
 std::string StandInAnimation(const std::string& file)
 {
+    static const struct { const char* missing; const char* standIn; } kNeverMade[] = {
+        { "anakin_frc_jump_c1.bnm", "anakin_frc_jump_v1.bnm" },  // a force jump's versions
+        { "anakin_frc_jump_c2.bnm", "anakin_frc_jump_v2.bnm" },
+        { "gpdroid_nav_mount_v3.bnm", "gpdroid_nav_mount_v2.bnm" }, // the grapple droid climbing on
+        { "gpdroid_nav_holeout.bnm", "gpdroid_nav_mount_v1.bnm" },  // and out of a hole
+        { "ctroop_nav_coverout_l.bnm", "ctroop_nav_coverout_r.bnm" }, // a clone leaving cover
+        { "ctroop_nav_slide_in.bnm", "ctroop_nav_fallloop.bnm" },     // and sliding down a slope
+        { "ctroop_nav_slide_loop.bnm", "ctroop_nav_fallloop.bnm" },
+        { "ctroop_nav_slide_out.bnm", "ctroop_nav_fallsoftland.bnm" },
+    };
+    for (const auto& n : kNeverMade)
+        if (file == n.missing)
+            return n.standIn;
     for (const char* side : { "gr_part", "gb_part" }) {
         const size_t at = file.find(side);
         if (at == std::string::npos)

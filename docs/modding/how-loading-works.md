@@ -108,6 +108,9 @@ initialize, the log names what is missing, e.g.
   Anakin is around and that combo is unlocked, which the story never pairs. A grapple move against one
   kind of opponent takes the same move's version against a Jedi instead, under the missing name
   (`Declare: ... never made, stands in as ...` in the log); without it the character is not created.
+  A few optional animations were never made either (parts of Anakin's force jump, two grapple droid
+  climbs, a clone's cover and slide moves) and take a close relative's place when a level loads its
+  characters' optional moves (`[Debug] OptionalMoves`, on with the debug menu).
 - **What is pulled in stays for the level.** A level keeps its own resources loaded; one the port
   brings in from another level is held the same way (the port keeps a reference of its own), so a
   spawned character's model is not freed when the last one wearing it dies (the next one would crash).

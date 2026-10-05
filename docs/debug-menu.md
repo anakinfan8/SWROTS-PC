@@ -198,6 +198,12 @@ level as its own costume is refused: a body's animation binding is built for the
 stays for the level. Bodies you wear as another class are your own copies, so they never get in the
 way.
 
+**Every move, in every level.** A level normally loads only the moves its own characters use: in a
+level without lightsaber duels, a hero you spawn (and your own Jedi against him) would lack the duel
+moves: blocks against a lightsaber, the clashes that lead to a saber lock, some specials. With the
+debug menu on, every level loads all of its characters' optional moves (`[Debug] OptionalMoves`, see
+[settings](settings.md)), so duels look and play as in the duel levels anywhere.
+
 **Versus.** `player` is for story levels. In Versus it does not apply costumes, texture sets or meshes
 yet; use `duelist` (above) to choose the fighters.
 

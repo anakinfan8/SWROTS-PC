@@ -274,8 +274,21 @@ loaded for this level!") and branches anyway (0x16C940). The step walk (0x49CAD0
 last step, which for no steps lies before the first, so it walked on through the memory after the
 empty list and crashed, at random, on a step kind it has no handler for (0x49B82A, null handler) or
 on what that left behind. The port refuses such a branch after the report (`src/game/fixes.cpp`):
-the character does not do that move. Loading the optional sequences a character needs, as the level
-would for its own characters, would give it the move back.
+the character does not do that move.
+
+The duel moves are among them (`Block2_*`: blocks and block reactions against a lightsaber;
+`BlockShunt_*`, `TrapShunt_*`: the clashes a saber lock comes out of; `GSO_Launcher_*`,
+`GSE_Clearing_Sweep_*`), so a hero spawned in a level without duels (Utapau's Separatist HQ) blocked
+stiffly and never got into a lock, and neither did the player's own Obi-Wan against him. The launch
+settings' developer switch `optionalanims` (`[[0x66F7A4]+4]` +0xE4, registered at 0x14983; +0xE3 forces
+it) has the level loader (the one read, 0xB12E9) load every optional sequence of the level's
+characters and the animations they play. The port turns it on (`[Debug] OptionalMoves`, on with the
+debug menu) by making that read `mov dl, 1`. The extra animations come from other levels' PAKs like
+any missing one; eight were never made and get a close relative as a stand-in (Anakin's force jump
+C1/C2, the grapple droid's mount V3 and hole-out, the clone's cover-out left and slide in/loop/out:
+`StandInAnimation`, `src/game/resources.cpp`); without them those classes fail to initialise ("You
+are missing required animations"). Measured in Utapau with four heroes spawned: 21 refused branches
+without it, none with it, for 0.3 MiB of Xbox memory and 1.9 MiB of the port's.
 
 ## Sides
 

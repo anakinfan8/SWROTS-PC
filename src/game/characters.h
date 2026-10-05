@@ -132,6 +132,9 @@ bool PlayerInLevel();
 // Whether a change of character restarts the running mission at once ([Debug] AutoRestart, on by
 // default); otherwise it applies from the next level start.
 void SetRestartOnChange(bool enabled);
+// Whether every level loads all of its characters' optional moves (the duel moves among them), so
+// that characters in a level not made for them have their whole move set ([Debug] OptionalMoves).
+void EnableOptionalMoves(bool enabled);
 bool RestartOnChange();
 
 // The character meshes in the disc's PAKs ("folder\file", lower case), those containing `filter`.
