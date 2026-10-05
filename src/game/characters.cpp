@@ -389,6 +389,11 @@ constexpr float kSpawnDistance = 120.0f; // in front of the player (a character 
 std::list<OwnedList> g_SpawnLists; // the spawned characters' own costume lists (this boot)
 int g_Spawned = 0;          // numbers the spawns in the log (this session)
 int g_SpawnedInLevel = 0;   // spawned in the running level
+// The maximum health chosen on the Game tab (0: the class's), kept through live changes.
+float g_ChosenMaxHealth = 0;
+// The level's own player's maximum health (levels set their own: Obi-Wan 1000 in Utapau, his class 1500),
+// taken at its first live change and given back when its class is again ("player off").
+float g_LevelMaxHealth = 0;
 std::unordered_map<std::string, std::string> g_BodyClasses; // body -> class (see RecordBody)
 uint8_t* g_LastSpawned = nullptr;
 uint8_t* g_ReplacedPlayer = nullptr; // the body the last live change replaced (research: findrefs old)
@@ -695,6 +700,8 @@ void InstallCharacters()
     g_ReplacedPlayer = nullptr;
     g_SpawnedCharacters.clear();
     g_BodyClasses.clear();
+    g_LevelMaxHealth = 0;
+    g_ChosenMaxHealth = 0;
     kernel::SetBeforeRelaunch(&HandChoiceToRelaunch);
     uint8_t* stub = AllocStub(16);
     std::memcpy(stub, reinterpret_cast<const void*>(uintptr_t(kSpawnPlayer)), 5);
@@ -1341,6 +1348,9 @@ bool ControllerBoundTo(const uint8_t* character)
     return !entry || *reinterpret_cast<const uint8_t* const*>(entry + 0x7C) == character;
 }
 
+constexpr uint32_t kCharacterHealth = 0x130;
+constexpr uint32_t kCharacterMaxHealth = 0x134;
+
 // The class each body (mesh) was bound to in this level, by the characters the port placed and the
 // players it replaced. A body's animation binding (its .ban) is built for the first class wearing it
 // and stays while the mesh is loaded, which the port keeps for the level (see resources.cpp): another
@@ -1434,6 +1444,19 @@ bool ReplacePlayer(std::string& error)
     float scale = 1.0f;
     if (CharacterScale(old, scale) && scale != 1.0f)
         SetCharacterScale(fresh, scale);
+    // Health carries over as a share of the maximum (the new class's, or the one chosen on the Game tab):
+    // a change is not a heal.
+    const float oldHealth = *reinterpret_cast<const float*>(old + kCharacterHealth);
+    const float oldMax = *reinterpret_cast<const float*>(old + kCharacterMaxHealth);
+    float& freshMax = *reinterpret_cast<float*>(fresh + kCharacterMaxHealth);
+    if (g_LevelMaxHealth <= 0)
+        g_LevelMaxHealth = oldMax;
+    if (g_ChosenMaxHealth > 0)
+        freshMax = g_ChosenMaxHealth;
+    else if (!g_PlayerClass && g_LevelMaxHealth > 0)
+        freshMax = g_LevelMaxHealth;
+    if (oldMax > 0 && freshMax > 0)
+        *reinterpret_cast<float*>(fresh + kCharacterHealth) = std::max(1.0f, freshMax * std::clamp(oldHealth / oldMax, 0.0f, 1.0f));
     // The old player goes, as the game removes its own objects, with the projectiles in flight. Its
     // controller slot (+0x43C) is let go first: removing a character unbinds its slot (0x8ADD0 with -1), which would clear the controller
     // entry's character (input manager [0x68D4F4] +0x1D8[slot] +0x7C), now the new player's; moves
@@ -1516,8 +1539,6 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
     return true;
 }
 
-constexpr uint32_t kCharacterHealth = 0x130;
-constexpr uint32_t kCharacterMaxHealth = 0x134;
 constexpr uint32_t kCharacterPower = 0xA40;    // Force power, as `power` sets it (0x150480)
 constexpr uint32_t kCharacterMaxPower = 0xA44; // its maximum (1000 for Anakin)
 bool g_InfiniteForce = false;
@@ -1596,6 +1617,7 @@ void SetPlayerMaxHealth(float health)
 {
     if (!PlayerAlive() || health <= 0)
         return;
+    g_ChosenMaxHealth = health;
     *reinterpret_cast<float*>(g_Player + kCharacterMaxHealth) = health;
     *reinterpret_cast<float*>(g_Player + kCharacterHealth) = health;
 }

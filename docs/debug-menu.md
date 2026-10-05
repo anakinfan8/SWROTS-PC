@@ -101,7 +101,9 @@ player                     shows the current choice
 
 **When it applies.** During a mission, a change happens at once, where you stand: the new character
 replaces yours as if the level had started with it (camera, controls, health and Force bars and HUD
-portrait follow it; your old character is removed from the level, not hidden). The console prints
+portrait follow it; your old character is removed from the level, not hidden). Your health carries over as a
+share of the new character's maximum (half stays half), and *Back to normal* gives the level's
+character its own maximum back. The console prints
 `changed at once`. When that cannot be done, it prints why and restarts the mission with the new
 character instead, as the pause menu's Restart Mission does: from the mission's start, not your last
 checkpoint. That happens when a spawned character's class already wore the body in this level (see
