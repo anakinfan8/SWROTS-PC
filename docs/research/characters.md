@@ -365,3 +365,9 @@ back to starting the game process again; the character choice is handed to the n
 - The four numbers in a costume list's header.
 - Characters a class's moves were not made for (droids with a Jedi's moves) stretch or twist; there
   is no retargeting.
+
+**Following (open).** The first mission's Obi-Wan and R2-D2 follow Anakin through their AI data's
+"Controller": Obi-Wan's is 13, R2-D2's 11, types the controller factory (0x1365E0) does not build, so a
+companion behaviour of its own. The AI controller (+0x9FC) keeps a default behaviour at +0x14 (Obi-Wan
+17, R2-D2 11, a spawned Obi-Wan 7) and the current one at +0x18 (13, 11, 5). Writers of +0x18 in the AI
+code: 0x181F1E, 0x1829ED, 0x193FB3, 0x19C7F7, 0x19C8CF, 0x19CD81 and others from 0x1A0EA4 on.
