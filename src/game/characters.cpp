@@ -415,8 +415,14 @@ constexpr uint32_t kDeactivate = 0xB0;
 // Dooku are spawned with it). The port removes only what it created or replaced, so it clears it.
 constexpr uint32_t kObjectProtected = 0x11D;
 
+// The lightsaber users that can deflect bolts ([0x7EAAF0], an array of characters; 0x26F360 adds one,
+// 0x26F350 removes one, both cdecl (character)). Only some classes' deactivation takes theirs out
+// (Dooku's and a spawned Jedi knight's did not), and a bolt picking a removed one crashed (0x26F14A).
+constexpr uint32_t kRemoveDeflector = 0x0026F350;
+
 void DestroyObject(uint8_t* object)
 {
+    reinterpret_cast<void(__cdecl*)(uint8_t*)>(uintptr_t(kRemoveDeflector))(object);
     object[kObjectProtected] = 0;
     reinterpret_cast<void(__fastcall*)(uint8_t*, void*)>((*reinterpret_cast<void* const* const*>(object))[kDeactivate / 4])(
         object, nullptr);
@@ -1199,6 +1205,41 @@ int ClearTargetsOn(const std::vector<uint8_t*>& removed, const std::vector<uint8
     return cleared;
 }
 
+// Other characters' own pointers to characters about to be removed (an opponent, an aim), and their AI
+// objects', set to none, by the rules a live change moves them by (OtherCharacterHolding).
+int ClearReferencesTo(const std::vector<uint8_t*>& removed)
+{
+    std::vector<std::pair<uintptr_t, size_t>> regions = kernel::GameMemoryRegions();
+    std::sort(regions.begin(), regions.end());
+    g_ScanRegions = &regions;
+    std::unordered_map<uintptr_t, bool> readable;
+    g_ReadablePages = &readable;
+    std::vector<uintptr_t> candidates(1 << 14);
+    int cleared = 0;
+    for (uint8_t* object : removed) {
+        const uint32_t value = uint32_t(uintptr_t(object));
+        for (const auto& [base, size] : regions) {
+            const size_t found = CollectCandidates(base, size, value, 1, value, value, candidates.data(), candidates.size());
+            for (size_t c = 0; c < found; ++c) {
+                const uintptr_t a = candidates[c];
+                if (a >= uintptr_t(object) && a < uintptr_t(object) + 0x1200)
+                    continue;
+                uintptr_t holder = 0;
+                if (OtherCharacterHolding(a, base, object, nullptr, holder) == Holder::None)
+                    continue;
+                const uint8_t* other = reinterpret_cast<const uint8_t*>(holder);
+                if (std::find(removed.begin(), removed.end(), other) != removed.end())
+                    continue;
+                *reinterpret_cast<uint32_t*>(a) = 0;
+                ++cleared;
+            }
+        }
+    }
+    g_ScanRegions = nullptr;
+    g_ReadablePages = nullptr;
+    return cleared;
+}
+
 int RepointPlayerReferences(uint8_t* from, uint8_t* to)
 {
     const ULONGLONG started = GetTickCount64();
@@ -1614,8 +1655,10 @@ int RemoveSpawned()
             if (std::find(live.begin(), live.end(), c) == live.end())
                 others.push_back(c);
         const int cleared = ClearTargetsOn(live, others);
-        if (cleared)
-            LOG_INFO("Characters: %d character(s) stopped targeting the spawned ones", cleared);
+        const int references = ClearReferencesTo(live);
+        if (cleared || references)
+            LOG_INFO("Characters: %d character(s) stopped targeting the spawned ones, %d other reference(s) cleared",
+                cleared, references);
         RemoveProjectiles();
     }
     int removed = 0;
