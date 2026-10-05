@@ -18,7 +18,8 @@ the [debug menu guide](https://github.com/jedijosh920/SWROTS-PC/blob/main/docs/d
   stormtrooper's body. The change happens **at once**, where you stand: the camera, controls, HUD
   portrait and health and Force bars follow the new character, and your health carries over as a
   share. **Back to normal** returns to the level's own character. When a change cannot be made at
-  once, the mission restarts with the new character instead.
+  once, the mission restarts with the new character instead (`[Debug] AutoRestart=0`: from the next
+  level start). Classes the game cut, such as Commander Cody, are refused.
 - **Duels anywhere.** With the debug menu on, every level loads all of its characters' moves (the
   duel moves among them: blocks against a lightsaber, the clashes that lead to a saber lock), so a
   hero fights properly in levels that never had one (`[Debug] OptionalMoves`).
@@ -43,9 +44,9 @@ the [debug menu guide](https://github.com/jedijosh920/SWROTS-PC/blob/main/docs/d
 
 ### Fixed
 
-- Crashes the game itself has with characters in levels not made for them: a move the level did not
-  load (now loaded, see above, or skipped), a Jedi brute with Anakin's fifth combo unlocked, a
-  character spawned after the last of its kind died.
+- Crashes in the game's own code with characters in levels not made for them: a move the level did
+  not load (now loaded, see above, or else skipped), and a Jedi brute with Anakin's fifth combo
+  unlocked (an animation the game never had: a close one stands in).
 
 ### Known issues
 
