@@ -362,6 +362,12 @@ void Restart()
 void PlayerChanged()
 {
     ShowPlayer();
+    if (game::PlayerInLevel() && !game::PlayerObject()) {
+        // A level without a story player (Versus creates its fighters its own way): nothing to change
+        // or restart into.
+        Print(LineKind::Output, "  (from the next story level: not in Versus)");
+        return;
+    }
     std::string error;
     if (game::PlayerInLevel() && game::RestartOnChange() && game::ReplacePlayer(error)) {
         Print(LineKind::Output, "  changed at once");

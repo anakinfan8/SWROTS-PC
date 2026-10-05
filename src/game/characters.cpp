@@ -1462,7 +1462,7 @@ bool BodyBoundToAnotherClass(uint8_t* character)
 bool ReplacePlayer(std::string& error)
 {
     if (!PlayerAlive()) {
-        error = "no mission is running";
+        error = g_PlayerSpawned ? "only in story levels, not in Versus" : "no mission is running";
         return false;
     }
     // The class: the chosen one, else the level's own (in its own costume unless one is chosen).
@@ -1557,7 +1557,7 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
     const std::string& mesh, SpawnSide side, std::string& error)
 {
     if (!PlayerAlive()) {
-        error = "no mission is running";
+        error = g_PlayerSpawned ? "only in story levels, not in Versus" : "no mission is running";
         return false;
     }
     const char* name = RegisteredClassName(className);

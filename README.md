@@ -109,6 +109,9 @@ and controller layouts: [controls](docs/controls.md).
   by loose files yet, and loose text resources in folders the disc also has (e.g. `gameinfo\`) fail
   to load.
 - Only the North American release is supported.
+- Playing as and spawning characters (debug menu) work in story levels only. A swapped or spawned
+  character can show at another spot for a moment before it is placed, and some missions expect
+  their own character in cutscenes and scripted moments.
 
 See the [issue tracker](../../issues) for the current list.
 
@@ -124,9 +127,9 @@ the run before. Say what you were doing, which level, and whether it happens eve
 - Proper 60 fps and higher (the engine has fixed-step simulation to build on).
 - An in-game settings menu, keyboard as its own player for versus modes, more controllers.
 - More versus fighters from the disc (the framework for Yoda's slot takes more), Yoda's own duel
-  intro, and a darker player-2 bust and HUD portrait for Sith Yoda. Playing as any character works in story levels;
-  next are costumes and bodies in Versus, keeping health and Force through a live change of
-  character, and blaster fire for gunner characters.
+  intro, and a darker player-2 bust and HUD portrait for Sith Yoda.
+- Character tools: spawned characters that follow you (as the first mission's Obi-Wan does), and
+  spawning in Versus.
 - A photo mode built on the free camera, with the game's own menus.
 - Modding tools: a character swap tool, dumping and replacing animations.
 - A full playthrough on many machines, and a stable 1.0.

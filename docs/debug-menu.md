@@ -195,7 +195,7 @@ the first time), and fights for its class's side with its own AI (clones and dro
 fight clones), or for the side you give it: `spawn IBattleDroid ally` fights for you, `spawn
 ICloneTrooper enemy` against you. A side is the game's own: an ally fights the level's enemies and
 they fight it, an enemy fights you and your allies. `neutral` attacks no one and no one attacks it,
-until it is hit: then it riots. `riot` attacks everyone, and everyone attacks it. `scale <size>` makes it bigger or smaller (`spawn IVader scale 3`). `characters` lists every character in the level with its side, behaviour, health, distance
+until it is hit: then it riots. `riot` attacks everyone, and everyone attacks it. `scale <size>` makes it bigger or smaller (`spawn IVader scale 3`). `characters` lists every character in the level with its side, AI controller, health, distance
 and what it is attacking. Spawned characters stay until the mission restarts or the level changes, or until
 `despawn` removes them (those still in the level, the dead ones too if their bodies remain). Tested with
 100 at once (about 7 MiB more memory, no errors); large crowds lower the frame rate. A spawn
@@ -210,8 +210,9 @@ moves: blocks against a lightsaber, the clashes that lead to a saber lock, some 
 debug menu on, every level loads all of its characters' optional moves (`[Debug] OptionalMoves`, see
 [settings](settings.md)), so duels look and play as in the duel levels anywhere.
 
-**Versus.** `player` is for story levels. In Versus it does not apply costumes, texture sets or meshes
-yet; use `duelist` (above) to choose the fighters.
+**Versus.** `player` and `spawn` are for story levels: Versus creates its fighters its own way, so
+there they do nothing (a change waits for the next story level). Use `duelist` (above) to choose the
+fighters.
 
 **If something goes wrong.**
 
