@@ -3,6 +3,58 @@
 What changed in each release of SWROTS-PC, newest first. Downloads are on the
 [releases page](https://github.com/jedijosh920/SWROTS-PC/releases).
 
+## [v0.3.0](https://github.com/jedijosh920/SWROTS-PC/releases/tag/v0.3.0) - 2026-10-04
+
+Play as anyone, spawn anyone, and a free camera.
+
+All of these are in the debug menu (`[Debug] DebugMenu=1` in `settings.ini`, then ~ in game); see
+the [debug menu guide](https://github.com/jedijosh920/SWROTS-PC/blob/main/docs/debug-menu.md).
+
+### Added
+
+- **Play story levels as any character.** Pick a class, a costume, a texture set (the 501st clones)
+  and a body (any character model on the disc or under `mods\`) in the **Characters** tab, or with
+  `player` in the console: Vader in Order 66, Anakin without his robe in the temple, Obi-Wan in a
+  stormtrooper's body. The change happens **at once**, where you stand: the camera, controls, HUD
+  portrait and health and Force bars follow the new character, and your health carries over as a
+  share. **Back to normal** returns to the level's own character. When a change cannot be made at
+  once, the mission restarts with the new character instead.
+- **Duels anywhere.** With the debug menu on, every level loads all of its characters' moves (the
+  duel moves among them: blocks against a lightsaber, the clashes that lead to a saber lock), so a
+  hero fights properly in levels that never had one (`[Debug] OptionalMoves`).
+- **Spawn any character** in front of you, loaded from other levels if need be: up to 5 at a time
+  from the **Spawn** area, or `spawn`. Pick their costume, texture set, body and size, and their
+  side: **Ally** (fights the level's enemies with you), **Enemy**, **Neutral** (fights no one until
+  hit, then riots) or **Riot** (attacks everyone). **Remove spawned** (`despawn`) clears them.
+- **Free camera** (`freecam`, or the Game tab): fly the view with the mouse and keyboard or a
+  controller, also with the game frozen; the game's camera shake and zoom stay off it.
+- **Game tab**: your character's live health, Force and position; god mode, infinite Force,
+  refill and maximum health; your **size** (0.25 to 4 times); **your own saber colour** (any colour,
+  yours only, kept through power-ups and cutscenes); time scale, AI, HUD opacity, difficulty and
+  the game's debug displays.
+- Console: `player`, `variants`, `meshes`, `restart`, `autorestart`, `spawn`, `despawn`, `scale`,
+  `saber`, `infiniteforce`, `memory`, `characters` (every character in the level with its side,
+  health and target), and the research commands `peek`, `team` and `findrefs`.
+- `duelist` puts any class in a versus select-screen slot.
+- For contributors: `SWROTS_COMMANDS`, `SWROTS_TEST_INPUT` and `SWROTS_FREECAM` for unattended tests
+  ([contributing](https://github.com/jedijosh920/SWROTS-PC/blob/main/CONTRIBUTING.md)); research
+  notes on [characters](https://github.com/jedijosh920/SWROTS-PC/blob/main/docs/research/characters.md)
+  and [the camera](https://github.com/jedijosh920/SWROTS-PC/blob/main/docs/research/camera-system.md).
+
+### Fixed
+
+- Crashes the game itself has with characters in levels not made for them: a move the level did not
+  load (now loaded, see above, or skipped), a Jedi brute with Anakin's fifth combo unlocked, a
+  character spawned after the last of its kind died.
+
+### Known issues
+
+- Playing as or spawning characters works in story levels only, not in Versus.
+- A swapped or spawned character can appear at another spot for a moment before it is placed.
+- Spawned characters do not follow you yet.
+- Some missions expect their own character in cutscenes and scripted moments.
+- At large sizes the camera stays where it is for a normal-sized character.
+
 ## [v0.2.1](https://github.com/jedijosh920/SWROTS-PC/releases/tag/v0.2.1) - 2026-10-01
 
 A fix for crashes after a level change on some graphics drivers.
