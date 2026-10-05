@@ -251,10 +251,11 @@ void SpawnArea(const CharacterPicks& picks)
     ImGui::SliderInt("How many##spawn", &count, 1, 5);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(width * 0.8f);
-    ImGui::Combo("Side##spawn", &side, "Default\0Ally\0Enemy\0");
+    ImGui::Combo("Side##spawn", &side, "Default\0Ally\0Enemy\0Neutral\0Riot\0");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Default: as the game has it (clones and droids against Jedi, a hero as AI against\n"
-                          "you). Ally fights for you, Enemy against you.");
+                          "you). Ally fights for you, Enemy against you. Neutral attacks no one and no one\n"
+                          "attacks it, until it is hit: then it riots. Riot attacks everyone.");
     ImGui::SameLine();
     ImGui::SameLine();
     ImGui::SetNextItemWidth(width * 0.6f);
@@ -272,6 +273,10 @@ void SpawnArea(const CharacterPicks& picks)
         spawn += " ally";
     else if (side == 2)
         spawn += " enemy";
+    else if (side == 3)
+        spawn += " neutral";
+    else if (side == 4)
+        spawn += " riot";
     if (size != 1.0f) {
         char scale[24];
         snprintf(scale, sizeof(scale), " scale %.2f", size);

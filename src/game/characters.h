@@ -62,7 +62,8 @@ bool ClassHasBody(const char* className);
 // costume (empty: its usual one), texture set and body (empty: the costume's) as for the player. It
 // takes its class's own AI and teams. False with `error` set when it cannot (no mission running, an
 // unknown or cut class).
-enum class SpawnSide { Default, Ally, Enemy };
+// Neutral: attacks no one and no one attacks it, until it is hit: then it riots. Riot: everyone's enemy.
+enum class SpawnSide { Default, Ally, Enemy, Neutral, Riot };
 bool SpawnCharacter(const char* className, const std::string& costume, const std::string& skin,
     const std::string& mesh, SpawnSide side, std::string& error);
 

@@ -383,7 +383,9 @@ constexpr uint32_t kCharacterCostume = 0x1E8;
 constexpr uint32_t kCharacterTransform = 0x150;
 constexpr uint32_t kActivate = 0xB4;
 constexpr uint32_t kPortPlayerTeam = 0x8000; // a team bit of the port's: the player and its allies
-constexpr uint32_t kPortEnemyTeam = 0x4000;  // and its spawned enemies           // object vfunc, thiscall ()
+constexpr uint32_t kPortEnemyTeam = 0x4000;  // and its spawned enemies
+constexpr uint32_t kPortNeutralTeam = 0x2000; // a neutral spawn (see IsEnemyHook)
+constexpr uint32_t kPortRiotTeam = 0x1000;    // a rioting one           // object vfunc, thiscall ()
 constexpr float kSpawnDistance = 120.0f; // in front of the player (a character is about 70 tall)
 
 std::list<OwnedList> g_SpawnLists; // the spawned characters' own costume lists (this boot)
@@ -647,8 +649,82 @@ void EnableOptionalMoves(bool enabled)
     g_OptionalMoves = enabled;
 }
 
+// "Is that character my enemy?" (0x18F3F0, thiscall on a character's AI controller (other, flag), its
+// character at +0x10): a rioting character is everyone's enemy and everyone is its; a neutral one is
+// no one's and no one is its. Otherwise the game decides.
+constexpr uint32_t kIsEnemy = 0x0018F3F0;
+constexpr uint8_t kIsEnemyPrologue[] = { 0x53, 0x55, 0x56, 0x57, 0x8B, 0x7C, 0x24, 0x14 };
+using IsEnemyFn = bool(__fastcall*)(uint8_t*, void*, uint8_t*, int);
+IsEnemyFn g_OriginalIsEnemy = nullptr;
+
+uint32_t TeamsOf(const uint8_t* character)
+{
+    const uint8_t* ai = character ? *reinterpret_cast<uint8_t* const*>(character + 0xA00) : nullptr;
+    return ai ? *reinterpret_cast<const uint32_t*>(ai + 0x214) : 0;
+}
+
+// The side a character fights on, for one the port gave a side (or against one): the player's (the
+// player, its allies, a level character not targeting the player) or the enemies' (the port's enemies, a
+// level character targeting the player). Team bits alone do not do: fighting a character with teams
+// gives the player every team that one lacks (0x18FA8C), the port's among them.
+enum class Side { Player, Enemies, Neutral, Riot };
+
+Side SideOf(const uint8_t* character, uint32_t teams)
+{
+    if (character == g_Player)
+        return Side::Player;
+    if (teams & kPortRiotTeam)
+        return Side::Riot;
+    if (teams & kPortNeutralTeam)
+        return Side::Neutral;
+    if (teams & kPortPlayerTeam)
+        return Side::Player;
+    if (teams & kPortEnemyTeam)
+        return Side::Enemies;
+    const uint8_t* ai = *reinterpret_cast<uint8_t* const*>(character + 0xA00);
+    return ai && ai[0x50] ? Side::Enemies : Side::Player;
+}
+
+bool __fastcall IsEnemyHook(uint8_t* brain, void* edx, uint8_t* other, int flag)
+{
+    const uint8_t* self = brain ? *reinterpret_cast<uint8_t* const*>(brain + 0x10) : nullptr;
+    if (self && other && self != other) {
+        constexpr uint32_t kPortSides = kPortPlayerTeam | kPortEnemyTeam | kPortNeutralTeam | kPortRiotTeam;
+        const uint32_t mine = self == g_Player ? 0 : TeamsOf(self), theirs = other == g_Player ? 0 : TeamsOf(other);
+        if ((mine | theirs) & kPortSides) {
+            const Side a = SideOf(self, mine), b = SideOf(other, theirs);
+            if (a == Side::Riot || b == Side::Riot)
+                return true;
+            if (a == Side::Neutral || b == Side::Neutral)
+                return false;
+            return a != b;
+        }
+    }
+    return g_OriginalIsEnemy(brain, edx, other, flag);
+}
+
+// Neutral spawns and the health they had: one that loses health was attacked, and riots.
+struct NeutralSpawn {
+    uint8_t* object;
+    uint32_t id;
+    float health;
+};
+std::vector<NeutralSpawn> g_Neutrals;
+
 void InstallCharacters()
 {
+    g_Neutrals.clear();
+    if (std::memcmp(reinterpret_cast<const void*>(uintptr_t(kIsEnemy)), kIsEnemyPrologue, sizeof(kIsEnemyPrologue)) == 0) {
+        uint8_t* stub = AllocStub(16);
+        std::memcpy(stub, kIsEnemyPrologue, sizeof(kIsEnemyPrologue));
+        stub[8] = 0xE9;
+        const int32_t back = int32_t(kIsEnemy + 8) - int32_t(uintptr_t(stub) + 13);
+        std::memcpy(stub + 9, &back, 4);
+        g_OriginalIsEnemy = reinterpret_cast<IsEnemyFn>(stub);
+        PatchJump(kIsEnemy, reinterpret_cast<const void*>(&IsEnemyHook));
+    } else {
+        LOG_WARN("Characters: unexpected code at the enemy check; neutral and riot sides unavailable");
+    }
     if (g_OptionalMoves) {
         if (std::memcmp(reinterpret_cast<const void*>(uintptr_t(kOptionalMovesRead)), kOptionalMovesReadBytes,
                 sizeof(kOptionalMovesReadBytes)) == 0) {
@@ -1017,6 +1093,7 @@ bool IsLevelReference(uintptr_t a, uintptr_t base, uint32_t into)
 constexpr uint32_t kCharacterAIData = 0xA00;
 constexpr uint32_t kAIHasSide = 0x1C;     // AI data: set where "Target Player" counts as a side
 constexpr uint32_t kAITargetPlayer = 0x50; // AI data "Target Player": the player's enemy
+constexpr uint32_t kAIIgnoredByAI = 0x52;  // AI data "Ignored By AI"
 struct AIPart { uint32_t inCharacter, owner; };
 constexpr AIPart kAIParts[] = { { 0x9FC, 0x10 }, { kCharacterAIData, 0x29C } };
 constexpr uint32_t kDuelMasterCameraVtable = 0x005B4DC0; // IMasterCameraVader
@@ -1526,12 +1603,20 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
         uint32_t playerTeams = 0;
         CharacterTeams(g_Player, playerTeams);
         SetCharacterTeams(g_Player, playerTeams | kPortPlayerTeam);
-        SetCharacterTeams(object, side == SpawnSide::Ally ? kPortPlayerTeam : kPortEnemyTeam);
+        static const struct { uint32_t team; uint8_t targetsPlayer; uint8_t ignored; const char* name; } kSides[] = {
+            {}, { kPortPlayerTeam, 0, 0, "an ally" }, { kPortEnemyTeam, 1, 0, "an enemy" },
+            { kPortNeutralTeam, 0, 1, "neutral" }, { kPortRiotTeam, 1, 0, "rioting" } };
+        const auto& sideData = kSides[int(side)];
+        SetCharacterTeams(object, sideData.team);
         if (uint8_t* ai = *reinterpret_cast<uint8_t**>(object + kCharacterAIData)) {
             ai[kAIHasSide] = 1;
-            ai[kAITargetPlayer] = side == SpawnSide::Ally ? 0 : 1;
+            ai[kAITargetPlayer] = sideData.targetsPlayer;
+            ai[kAIIgnoredByAI] = sideData.ignored; // "Ignored By AI": no one sets out for it
         }
-        LOG_INFO("Characters: %s is %s", who, side == SpawnSide::Ally ? "an ally" : "an enemy");
+        if (side == SpawnSide::Neutral)
+            g_Neutrals.push_back({ object, *reinterpret_cast<uint32_t*>(object + 4),
+                *reinterpret_cast<const float*>(object + kCharacterHealth) });
+        LOG_INFO("Characters: %s is %s", who, sideData.name);
     }
     ++g_SpawnedInLevel;
     g_LastSpawned = object;
@@ -1555,6 +1640,26 @@ bool InfiniteForce()
 
 void PlayerFrame()
 {
+    // A neutral spawn that lost health was attacked: it riots.
+    for (auto it = g_Neutrals.begin(); it != g_Neutrals.end();) {
+        if (reinterpret_cast<uint8_t*(__cdecl*)(uint32_t)>(uintptr_t(kObjectById))(it->id) != it->object) {
+            it = g_Neutrals.erase(it);
+            continue;
+        }
+        const float health = *reinterpret_cast<const float*>(it->object + kCharacterHealth);
+        if (health < it->health) {
+            SetCharacterTeams(it->object, kPortRiotTeam);
+            if (uint8_t* ai = *reinterpret_cast<uint8_t**>(it->object + kCharacterAIData)) {
+                ai[kAITargetPlayer] = 1;
+                ai[kAIIgnoredByAI] = 0;
+            }
+            LOG_INFO("Characters: a neutral character was attacked and riots");
+            it = g_Neutrals.erase(it);
+            continue;
+        }
+        ++it;
+    }
+
     if (g_SaberColorSet)
         ApplySaberColor(true);
 

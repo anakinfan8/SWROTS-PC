@@ -242,7 +242,7 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  player [<class>|- [<costume>] [skin <set>] [mesh <mesh>|off]|off]");
     Print(LineKind::Output, "                           play as a character, costume or mesh (- = the level's own class)");
     Print(LineKind::Output, "  saber [red|green|blue|purple|<r> <g> <b>|off]  the player's saber colour, its own only");
-    Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy]");
+    Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy|neutral|riot]");
     Print(LineKind::Output, "                           [scale <size>]: a character in front of the player");
     Print(LineKind::Output, "  scale [<size>] [spawned]  your size (or the last spawned character's), 1 being its own");
     Print(LineKind::Output, "  infiniteforce [on|off]   your Force stays full");
@@ -515,10 +515,16 @@ void Spawn(const std::vector<std::string>& words)
             scale = float(atof(words[++i].c_str()));
             continue;
         }
-        if (_stricmp(words[i].c_str(), "ally") == 0 || _stricmp(words[i].c_str(), "enemy") == 0) {
-            side = _stricmp(words[i].c_str(), "ally") == 0 ? game::SpawnSide::Ally : game::SpawnSide::Enemy;
+        static const struct { const char* name; game::SpawnSide side; } kSides[] = { { "ally", game::SpawnSide::Ally },
+            { "enemy", game::SpawnSide::Enemy }, { "neutral", game::SpawnSide::Neutral }, { "riot", game::SpawnSide::Riot } };
+        bool isSide = false;
+        for (const auto& s : kSides)
+            if (_stricmp(words[i].c_str(), s.name) == 0) {
+                side = s.side;
+                isSide = true;
+            }
+        if (isSide)
             continue;
-        }
         const bool isSkin = _stricmp(words[i].c_str(), "skin") == 0;
         const bool isMesh = _stricmp(words[i].c_str(), "mesh") == 0;
         if ((isSkin || isMesh) && i + 1 < words.size()) {
@@ -529,7 +535,7 @@ void Spawn(const std::vector<std::string>& words)
         }
     }
     if (rest.empty() || rest.size() > 2) {
-        Print(LineKind::Error, "spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy] [scale <size>]");
+        Print(LineKind::Error, "spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy|neutral|riot] [scale <size>]");
         return;
     }
     const char* name = game::RegisteredClassName(rest[0].c_str());

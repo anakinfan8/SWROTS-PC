@@ -305,7 +305,12 @@ no enemy; without teams, a differing "Target Player" makes enemies, then the cla
 class's "Target Player" (set: your enemy), so an ally that only had a team stayed on the level
 enemies' side: they ignored each other, and it fought back when hit. The port's `spawn ... ally|enemy`
 sets "Target Player" (0 for an ally, 1 for an enemy) and gives the player and its allies the team bit
-0x8000, its enemies 0x4000, outside the designers' A-H.
+0x8000, its enemies 0x4000, outside the designers' A-H. Fighting a character with teams gives the player
+every team that one lacks (0x18FA8C), so team bits alone do not keep sides: the port hooks the check
+(0x18F3F0) and, when either character has a side of the port's (ally 0x8000, enemy 0x4000, neutral
+0x2000, riot 0x1000), decides by side: riot is everyone's enemy, neutral no one's (and "Ignored By AI",
++0x52, set), else the player's side (the player, allies, level characters not targeting the player)
+against the enemies'. A neutral spawn that loses health riots.
 
 **Behaviours.** The AI data's "Controller" (+0x08) is the AI controller type the character gets when it
 is placed, built by TGCoreInterface's factory (0x1365E0, thiscall `(type, owner, info)`): 1 Pursue,
