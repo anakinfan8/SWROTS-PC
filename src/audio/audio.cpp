@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "core/log.h"
+#include "core/window.h"
 #include "kernel/kernel.h"
 #include "xapi/xapi.h"
 
@@ -228,6 +229,8 @@ static bool EnsureEngine()
         g_AudioFailed = true;
         return false;
     }
+    if (RunningInBackground()) // a background test run (core/window.h) is silent
+        g_Master->SetVolume(0.0f);
     LOG_INFO("Audio: XAudio2 ready (48 kHz stereo)");
     return true;
 }

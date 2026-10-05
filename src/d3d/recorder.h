@@ -26,6 +26,13 @@ void FlightMarkSkipped();
 void FlightNote(const char* fmt, ...);
 // Ends a frame: keeps a thumbnail of the finished back buffer and handles the hotkey.
 void FlightEndFrame(IDirect3DSurface9* backBuffer);
+// Screenshots: the game's frame as the window shows it (without the debug menu), saved as PNG into
+// `directory` (set once at startup). A request is taken at the next presented frame; `name` is the file's
+// name without .png (empty: the date and time). Safe to call from any thread.
+void SetScreenshotDirectory(const std::wstring& directory);
+void RequestScreenshot(const std::string& name);
+// Saves a requested screenshot from the window's back buffer (call before drawing the debug menu).
+void SavePendingScreenshot(IDirect3DSurface9* windowBuffer);
 // Frees GPU resources (device teardown).
 void FlightReleaseResources();
 

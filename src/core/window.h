@@ -21,6 +21,9 @@ HWND CreateGameWindow(bool fullscreen);
 HWND GameWindow();
 // The game presented a frame (the window no longer needs painting black).
 void NoteGameFramePresented();
+// SWROTS_BACKGROUND=1 (unattended tests): the game starts minimised, and keeps drawing frames and taking
+// screenshots while it is.
+bool RunningInBackground();
 // True while the game's window is the active one (keyboard input goes to it).
 bool GameWindowActive();
 // Mouse buttons count as game input only while the mouse is captured, and not

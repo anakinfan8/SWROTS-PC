@@ -74,7 +74,10 @@ that many seconds after the start, player 1 plays by itself like a busy player: 
 round and the face buttons, triggers and white and black buttons pressed in turn, never Start or Back;
 for testing what only happens while the player moves and fights; `<seconds>:run` only holds the stick
 forward), `SWROTS_COMMANDS="<seconds>:<command>;..."` (runs debug console
-commands that many seconds after the start, e.g. `"9:player IVader;12:spawn ICloneTrooper enemy;15:despawn"`).
+commands that many seconds after the start, e.g. `"9:player IVader;12:spawn ICloneTrooper enemy;15:despawn"`;
+`screenshot <name>` among them saves what the game shows then to `screenshots\<name>.png`),
+`SWROTS_BACKGROUND=1` (starts the game minimised and silent without taking the focus, so a test run
+leaves the desktop alone; it keeps drawing, and the screenshots work).
 
 ## Finding your way around
 

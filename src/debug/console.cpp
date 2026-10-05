@@ -14,6 +14,7 @@
 
 #include "core/log.h"
 #include "core/patch.h"
+#include "d3d/recorder.h"
 #include "game/freecam.h"
 #include "game/game.h"
 #include "game/characters.h"
@@ -254,6 +255,7 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  meshes [text]            the character meshes on the disc (those containing text)");
     Print(LineKind::Output, "  unlockprofile            unlock everything in the signed-in profile (it is saved with it)");
     Print(LineKind::Output, "  freecam [on|off]         free camera: fly the view, the player stands still");
+    Print(LineKind::Output, "  screenshot [name]        save the game's picture (without this menu) to screenshots");
     Print(LineKind::Output, "  clear                    empties this window");
     Print(LineKind::Output, "  help");
     Print(LineKind::Port, "Game commands:");
@@ -933,7 +935,8 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         command != "restart" && command != "autorestart" && command != "unlockprofile" &&
         command != "freecam" && command != "saber" && command != "spawn" && command != "peek" &&
         command != "infiniteforce" && command != "memory" && command != "team" &&
-        command != "findrefs" && command != "despawn" && command != "characters" && command != "scale")
+        command != "findrefs" && command != "despawn" && command != "characters" && command != "scale" &&
+        command != "screenshot")
         return false;
     Print(LineKind::Output, "> %s", line.c_str());
     if (command == "duelist") {
@@ -968,6 +971,9 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         Characters();
     } else if (command == "scale") {
         Scale(words);
+    } else if (command == "screenshot") {
+        d3d::RequestScreenshot(words.size() > 1 ? words[1] : "");
+        Print(LineKind::Output, "  saved at the next frame, without this menu, to the screenshots folder");
     } else if (command == "despawn") {
         Print(LineKind::Output, "  %d spawned character(s) removed", game::RemoveSpawned());
     } else if (command == "unlockprofile") {
@@ -1059,7 +1065,7 @@ void RunQueuedConsoleCommands()
             // and gone while a level loads).
             const std::vector<std::string> words = Words(line);
             static const char* const kStandalone[] = { "player", "variants", "meshes", "restart", "autorestart",
-                "duelist", "freecam", "saber", "spawn", "peek", "infiniteforce", "memory", "team", "findrefs", "despawn", "characters", "scale", "clear", "cls" };
+                "duelist", "freecam", "saber", "spawn", "peek", "infiniteforce", "memory", "team", "findrefs", "despawn", "characters", "scale", "screenshot", "clear", "cls" };
             const bool standalone = !words.empty() && std::any_of(std::begin(kStandalone), std::end(kStandalone),
                 [&](const char* c) { return _stricmp(words[0].c_str(), c) == 0; });
             if (standalone) {

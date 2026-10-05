@@ -460,10 +460,18 @@ static bool EnsureWindowChain()
 {
     RECT client;
     GetClientRect(GameWindow(), &client);
-    const UINT width = UINT(std::max<LONG>(client.right - client.left, 0));
-    const UINT height = UINT(std::max<LONG>(client.bottom - client.top, 0));
-    if (!width || !height)
-        return false;
+    UINT width = UINT(std::max<LONG>(client.right - client.left, 0));
+    UINT height = UINT(std::max<LONG>(client.bottom - client.top, 0));
+    if (!width || !height) {
+        // Minimised in a background test run (core/window.h): keep presenting at the last size, or the set
+        // one, so frames are finished and screenshots taken.
+        if (!RunningInBackground() || !IsIconic(GetAncestor(GameWindow(), GA_ROOT)))
+            return false;
+        if (g_WindowChain)
+            return true;
+        width = GetSettings().width > 0 ? UINT(GetSettings().width) : 1280;
+        height = GetSettings().height > 0 ? UINT(GetSettings().height) : 720;
+    }
     if (g_WindowChain && width == g_ChainWidth && height == g_ChainHeight)
         return true;
     if (g_SwapChainBuffer) g_SwapChainBuffer->Release();
@@ -538,6 +546,7 @@ static void PresentFrame()
     if (w != LONG(out.Width) || h != LONG(out.Height))
         g_Device->ColorFill(g_SwapChainBuffer, nullptr, D3DCOLOR_XRGB(0, 0, 0));
     g_Device->StretchRect(g_HostBackBuffer, nullptr, g_SwapChainBuffer, &dest, D3DTEXF_LINEAR);
+    SavePendingScreenshot(g_SwapChainBuffer);
     if (debug::MenuOpen())
         DrawMenu();
     HRESULT presented = g_WindowChain->Present(nullptr, nullptr, nullptr, nullptr, 0);

@@ -306,7 +306,9 @@ HWND CreateMainWindow(const XbeFile& xbe)
         Fatal("Could not create the game window");
     SetWindowIconFromXbe(g_Frame, xbe);
     SetRelaunchProperties(g_Frame);
-    ShowWindow(g_Frame, SW_SHOW);
+    // Development aid: SWROTS_BACKGROUND=1 starts the game minimised and inactive, for unattended tests
+    // that leave the desktop alone (frames are still drawn: d3d/device.cpp; the sound is muted: audio.cpp).
+    ShowWindow(g_Frame, RunningInBackground() ? SW_SHOWMINNOACTIVE : SW_SHOW);
     UpdateWindow(g_Frame);
     return g_Frame;
 }
@@ -341,6 +343,12 @@ HWND CreateGameWindow(bool fullscreen)
 }
 
 HWND GameWindow() { return g_Window; }
+
+bool RunningInBackground()
+{
+    static const bool background = GetEnvironmentVariableW(L"SWROTS_BACKGROUND", nullptr, 0) != 0;
+    return background;
+}
 
 bool GameWindowActive() { return g_Window && GetForegroundWindow() == GetAncestor(g_Window, GA_ROOT); }
 

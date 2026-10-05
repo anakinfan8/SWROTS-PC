@@ -15,6 +15,8 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -244,6 +246,76 @@ static bool SavePng(IWICImagingFactory* wic, const std::wstring& path, const D3D
     if (encoder) encoder->Release();
     if (stream) stream->Release();
     return ok;
+}
+
+// --- Screenshots ------------------------------------------------------------------------------
+
+static std::mutex g_ShotLock;
+static std::wstring g_ShotDir;
+static std::vector<std::string> g_ShotRequests;
+
+void SetScreenshotDirectory(const std::wstring& directory)
+{
+    std::lock_guard<std::mutex> lock(g_ShotLock);
+    g_ShotDir = directory;
+}
+
+void RequestScreenshot(const std::string& name)
+{
+    std::lock_guard<std::mutex> lock(g_ShotLock);
+    g_ShotRequests.push_back(name);
+}
+
+void SavePendingScreenshot(IDirect3DSurface9* windowBuffer)
+{
+    std::vector<std::string> requests;
+    std::wstring dir;
+    {
+        std::lock_guard<std::mutex> lock(g_ShotLock);
+        if (g_ShotRequests.empty())
+            return;
+        requests.swap(g_ShotRequests);
+        dir = g_ShotDir;
+    }
+    D3DSURFACE_DESC desc;
+    IDirect3DSurface9* staging = nullptr;
+    D3DLOCKED_RECT lr;
+    if (dir.empty() || !windowBuffer || FAILED(windowBuffer->GetDesc(&desc)) ||
+        (desc.Format != D3DFMT_X8R8G8B8 && desc.Format != D3DFMT_A8R8G8B8) ||
+        FAILED(Device()->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM,
+            &staging, nullptr)) ||
+        FAILED(Device()->GetRenderTargetData(windowBuffer, staging)) ||
+        FAILED(staging->LockRect(&lr, nullptr, D3DLOCK_READONLY))) {
+        if (staging) staging->Release();
+        LOG_ERROR("Screenshot: could not read the frame");
+        return;
+    }
+    CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    IWICImagingFactory* wic = nullptr;
+    CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic));
+    CreateDirectoryW(dir.c_str(), nullptr);
+    for (const std::string& name : requests) {
+        std::wstring file;
+        if (name.empty()) {
+            SYSTEMTIME t;
+            GetLocalTime(&t);
+            wchar_t stamp[64];
+            swprintf_s(stamp, L"%04u-%02u-%02u_%02u-%02u-%02u-%03u", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute,
+                t.wSecond, t.wMilliseconds);
+            file = stamp;
+        } else {
+            for (char c : name) // a plain file name: anything else (a path) becomes _
+                file += (isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_' || c == '.') ? wchar_t(c) : L'_';
+        }
+        const std::wstring path = dir + L"\\" + file + L".png";
+        if (wic && SavePng(wic, path, lr, desc.Width, desc.Height))
+            LOG_INFO("Screenshot: %ls (%ux%u)", path.c_str(), desc.Width, desc.Height);
+        else
+            LOG_ERROR("Screenshot: could not write %ls", path.c_str());
+    }
+    staging->UnlockRect();
+    staging->Release();
+    if (wic) wic->Release();
 }
 
 static const char* ModeName(uint8_t m)

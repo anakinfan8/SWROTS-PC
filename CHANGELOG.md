@@ -3,6 +3,21 @@
 What changed in each release of SWROTS-PC, newest first. Downloads are on the
 [releases page](https://github.com/jedijosh920/SWROTS-PC/releases).
 
+## Unreleased
+
+### Added
+
+- **`screenshot [name]`** in the debug console saves the game's picture, without the debug menu, to
+  `screenshots\`.
+
+### Fixed
+
+- **Characters' sounds in levels they are not from.** A character played in or spawned into a level
+  that does not have them now has their own sounds, taken from the levels that do: a Sith's saber
+  swings and hits, Force lightning. Levels played as they come are unchanged.
+- **The duel camera after a character change.** Changing from the level's own character in a duel
+  (Obi-Wan on Mustafar) left the camera where it was; it follows the new character again.
+
 ## [v0.3.0](https://github.com/jedijosh920/SWROTS-PC/releases/tag/v0.3.0) - 2026-10-04
 
 Play as anyone, spawn anyone, and a free camera.

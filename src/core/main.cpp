@@ -287,6 +287,7 @@ static void Run(void* reserveBase, unsigned reserveSize, void* contiguousBase, u
     game::SetRestartOnChange(GetPrivateProfileIntW(L"Debug", L"AutoRestart", 1, ini.c_str()) != 0);
     d3d::ConfigureFlightRecorder(GetPrivateProfileIntW(L"Debug", L"FlightRecorder", 0, ini.c_str()) != 0,
         exeDir + L"\\flight");
+    d3d::SetScreenshotDirectory(exeDir + L"\\screenshots");
     InstallCrashHandler();
 
     const Settings& settings = GetSettings();
