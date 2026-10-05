@@ -433,6 +433,36 @@ static void WaitForVBlank()
 
 static void __stdcall XbBlockUntilVerticalBlank() { WaitForVBlank(); }
 
+// The frame rate in the log, every 30 seconds of play: the average, the slowest frame and how many took
+// longer than two vblanks (visible stutter), so a report's log shows how the game ran.
+static void NoteFrameTime()
+{
+    static LARGE_INTEGER freq;
+    static LONGLONG start = 0, last = 0, slowest = 0;
+    static int frames = 0, long_ = 0;
+    if (!freq.QuadPart)
+        QueryPerformanceFrequency(&freq);
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    if (!start) {
+        start = last = now.QuadPart;
+        return;
+    }
+    const LONGLONG frame = now.QuadPart - last;
+    last = now.QuadPart;
+    ++frames;
+    slowest = std::max(slowest, frame);
+    long_ += frame * 1000 > freq.QuadPart * 34; // over two 60 Hz vblanks
+    const double seconds = double(now.QuadPart - start) / double(freq.QuadPart);
+    if (seconds < 30.0)
+        return;
+    LOG_INFO("Performance: %.1f fps over %.0f s, slowest frame %.0f ms, %d frame(s) over 34 ms", frames / seconds,
+        seconds, double(slowest) * 1000.0 / double(freq.QuadPart), long_);
+    start = now.QuadPart;
+    frames = long_ = 0;
+    slowest = 0;
+}
+
 // Software-rendered content (the Sofdec movie player) is written straight into
 // the Xbox back buffer's memory; show it when the CPU has written there.
 static void UploadCpuWrittenBackBuffer()
@@ -590,6 +620,7 @@ static DWORD __stdcall XbSwap(DWORD flags)
     }
 
     ++g_State.swapCount;
+    NoteFrameTime();
     CollectResources(g_State.swapCount);
     return g_State.swapCount;
 }

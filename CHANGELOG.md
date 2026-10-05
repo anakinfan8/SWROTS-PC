@@ -9,6 +9,8 @@ What changed in each release of SWROTS-PC, newest first. Downloads are on the
 
 - **`screenshot [name]`** in the debug console saves the game's picture, without the debug menu, to
   `screenshots\`.
+- **The frame rate in the log**: every 30 seconds `logs\swrots.log` notes the average frame rate, the
+  slowest frame and how many frames took long enough to stutter, so a bug report's log shows how the game ran.
 
 ### Fixed
 
