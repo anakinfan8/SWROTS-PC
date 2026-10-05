@@ -312,7 +312,10 @@ is placed, built by TGCoreInterface's factory (0x1365E0, thiscall `(type, owner,
 2 Attack, 3 Idle, 4 Patrol, 5 Roam, 6 Stalk, 7 Wall, 8 Goto, 9 GiveItem, 14 Follow, 15 RunAway. A level
 gives a character an info object with the controller's settings (TAIFollowControllerInfo: "Follow This
 Character" +0x94); a Follow controller built without one follows the player (0x183930). Patrol, Goto,
-Wall and GiveItem need the level's data (a route, a point, a wall, an item). The AI data also has a
+Wall and GiveItem need the level's data (a route, a point, a wall, an item). Setting "Controller" on a
+spawn before it is placed did not change its behaviour (it kept roaming), and RunAway so set crashed
+in its controller (0xB9B84, from TAIBaseControllerInfo vfunc 56): how the AI picks its controller at
+runtime is still open. The AI data also has a
 formation system ("Formation Data": "Can Join Formations", "Target What Leader Targets", "Formation
 Members"), not used by the port. Character +0x3F4 is a category, not a side: 1 the player,
 0x10 troops (clones and droids alike), 0x08 duelists (Jedi, Vader); the AI keeps a copy at +0x3FC.

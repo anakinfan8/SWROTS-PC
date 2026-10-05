@@ -240,12 +240,11 @@ std::string PlayerCommand(const CharacterPicks& picks)
 }
 
 // The Characters tab's Spawn area: the Play-as picks (class, costume, texture set, body), how many, on
-// which side and with which behaviour (game::SpawnBehaviours), then Spawn.
+// which side and how big, then Spawn.
 void SpawnArea(const CharacterPicks& picks)
 {
     static int count = 1;
     static int side = 0;
-    static int behaviour = 0; // 0: the class's own, else 1 + an index into game::SpawnBehaviours()
     static float size = 1.0f;
     const float width = ImGui::GetContentRegionAvail().x / 4.0f;
     ImGui::SetNextItemWidth(width * 0.6f);
@@ -257,23 +256,6 @@ void SpawnArea(const CharacterPicks& picks)
         ImGui::SetTooltip("Default: as the game has it (clones and droids against Jedi, a hero as AI against\n"
                           "you). Ally fights for you, Enemy against you.");
     ImGui::SameLine();
-    const auto& behaviours = game::SpawnBehaviours();
-    ImGui::SetNextItemWidth(width * 0.8f);
-    if (ImGui::BeginCombo("Behaviour##spawn", behaviour == 0 ? "Default" : behaviours[behaviour - 1].name)) {
-        if (ImGui::Selectable("Default", behaviour == 0))
-            behaviour = 0;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Its class's own");
-        for (size_t i = 0; i < behaviours.size(); ++i) {
-            if (ImGui::Selectable(behaviours[i].name, behaviour == int(i) + 1))
-                behaviour = int(i) + 1;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("%s", behaviours[i].description);
-        }
-        ImGui::EndCombo();
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("What it does: follow fights at your side wherever you go (with Ally: an army).");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(width * 0.6f);
     ImGui::SliderFloat("Size##spawn", &size, 0.25f, 4.0f, "%.2fx", ImGuiSliderFlags_Logarithmic);
@@ -290,8 +272,6 @@ void SpawnArea(const CharacterPicks& picks)
         spawn += " ally";
     else if (side == 2)
         spawn += " enemy";
-    if (behaviour > 0)
-        spawn += std::string(" ") + behaviours[behaviour - 1].name;
     if (size != 1.0f) {
         char scale[24];
         snprintf(scale, sizeof(scale), " scale %.2f", size);

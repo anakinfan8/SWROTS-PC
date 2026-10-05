@@ -396,7 +396,7 @@ uint8_t* g_ReplacedPlayer = nullptr; // the body the last live change replaced (
 // object the game destroyed meanwhile no longer has it).
 struct SpawnedCharacter {
     uint8_t* object;
-    uint32_t vtable;
+    uint32_t id; // its instance id (+4): still in the level while the object manager finds it by it
 };
 std::vector<SpawnedCharacter> g_SpawnedCharacters;
 
@@ -411,8 +411,13 @@ constexpr uint32_t kDestroyObject = 0x000A2FE0;
 // flight still finds the removed character (0x26F14A).
 constexpr uint32_t kDeactivate = 0xB0;
 
+// The object manager's Delete (0xB5840) refuses an object marked protected (+0x11D: bosses such as
+// Dooku are spawned with it). The port removes only what it created or replaced, so it clears it.
+constexpr uint32_t kObjectProtected = 0x11D;
+
 void DestroyObject(uint8_t* object)
 {
+    object[kObjectProtected] = 0;
     reinterpret_cast<void(__fastcall*)(uint8_t*, void*)>((*reinterpret_cast<void* const* const*>(object))[kDeactivate / 4])(
         object, nullptr);
     reinterpret_cast<void(__cdecl*)(uint8_t*)>(uintptr_t(kDestroyObject))(object);
@@ -1039,19 +1044,27 @@ uintptr_t AIDataOwner(uintptr_t ai)
 
 enum class Holder { None, Character, AIData };
 
-// Whether `a` lies in another character than `self` or in another's AI data (`start`: where it begins).
+// Whether `a` lies in a character other than `self` and `fresh` (the old and the new player) or in such a
+// character's AI objects (`start`: where it begins). The new player's own are not the level's: its AI
+// pointing at the old player is not to become pointing at itself. In a character, only its own fields
+// count (from kCharacterOwnFields on: an opponent at +0x3B8): below are the object's links in the
+// engine's lists (+0x40, +0x4C: the objects of a sector, drawn through them), which the engine keeps
+// as objects come and go; one moved to the new player broke its sector's list, and the new player was
+// not drawn (only its saber was) until moving put it in a sector again.
+constexpr uintptr_t kCharacterOwnFields = 0x200;
 // The nearest object start below `a` decides.
-Holder OtherCharacterHolding(uintptr_t a, uintptr_t base, const uint8_t* self, uintptr_t& start)
+Holder OtherCharacterHolding(uintptr_t a, uintptr_t base, const uint8_t* self, const uint8_t* fresh, uintptr_t& start)
 {
     for (uintptr_t o = 0; o < 0x1200 && o <= a - base; o += 4) {
         start = (a & ~uintptr_t(3)) - o;
         uint32_t ai = 0;
         if (InScanRegions(start + kCharacterAIData, 4) && ReadGameDword(start + kCharacterAIData, ai) && ai > 0x10000 &&
             AIDataOwner(ai) == start)
-            return start != uintptr_t(self) ? Holder::Character : Holder::None;
+            return start != uintptr_t(self) && start != uintptr_t(fresh) && o >= kCharacterOwnFields ? Holder::Character
+                                                                                                   : Holder::None;
         if (o < 0x800) {
             if (const uintptr_t owner = AIDataOwner(start))
-                return owner != uintptr_t(self) ? Holder::AIData : Holder::None;
+                return owner != uintptr_t(self) && owner != uintptr_t(fresh) ? Holder::AIData : Holder::None;
         }
     }
     return Holder::None;
@@ -1134,6 +1147,58 @@ bool SetCharacterScale(uint8_t* character, float scale)
     return true;
 }
 
+// Projectiles in flight (blaster bolts, deflected bolts, rockets) keep characters they involve, and a
+// deflected one read a character the port had just removed (0x26E6AD, from IDeflectionProjectile's
+// update): before the port removes characters (a live change, despawn), the bolts in the air go too.
+constexpr uint32_t kBlasterProjectileVtable = 0x005AAB90;
+constexpr uint32_t kDeflectionProjectileVtable = 0x005AC4B8;
+constexpr uint32_t kRocketProjectileVtable = 0x005B7B90;
+
+int RemoveProjectiles()
+{
+    std::vector<uintptr_t> found(4096);
+    std::vector<uint8_t*> projectiles;
+    for (const auto& [base, size] : kernel::GameMemoryRegions()) {
+        const size_t n = CollectCandidates(base, size, kBlasterProjectileVtable, 1, kDeflectionProjectileVtable,
+            kRocketProjectileVtable, found.data(), found.size());
+        for (size_t i = 0; i < n; ++i) {
+            uint32_t id = 0;
+            // A live object: the object manager finds it by its instance id.
+            if (ReadGameDword(found[i] + 4, id) &&
+                reinterpret_cast<uint8_t*(__cdecl*)(uint32_t)>(uintptr_t(kObjectById))(id) == reinterpret_cast<uint8_t*>(found[i]))
+                projectiles.push_back(reinterpret_cast<uint8_t*>(found[i]));
+        }
+    }
+    for (uint8_t* projectile : projectiles)
+        DestroyObject(projectile);
+    if (!projectiles.empty())
+        LOG_INFO("Characters: %zu projectile(s) in flight removed", projectiles.size());
+    return int(projectiles.size());
+}
+
+// Characters targeting one about to be removed (despawn) let it go, through the AI's own SetTarget
+// (0x193D90, thiscall on the AI controller (target), null clearing it): a target left behind was read
+// once removed (a bolt fired at it, 0x26E6AD).
+constexpr uint32_t kAISetTarget = 0x00193D90;
+constexpr uint32_t kAIControllerInCharacter = 0x9FC;
+constexpr uint32_t kAITarget = 0x41C;
+
+int ClearTargetsOn(const std::vector<uint8_t*>& removed, const std::vector<uint8_t*>& characters)
+{
+    int cleared = 0;
+    for (uint8_t* c : characters) {
+        uint8_t* brain = *reinterpret_cast<uint8_t**>(c + kAIControllerInCharacter);
+        if (!brain)
+            continue;
+        uint8_t* target = *reinterpret_cast<uint8_t**>(brain + kAITarget);
+        if (!target || std::find(removed.begin(), removed.end(), target) == removed.end())
+            continue;
+        reinterpret_cast<void(__fastcall*)(uint8_t*, void*, uint8_t*)>(uintptr_t(kAISetTarget))(brain, nullptr, nullptr);
+        ++cleared;
+    }
+    return cleared;
+}
+
 int RepointPlayerReferences(uint8_t* from, uint8_t* to)
 {
     const ULONGLONG started = GetTickCount64();
@@ -1182,7 +1247,7 @@ int RepointPlayerReferences(uint8_t* from, uint8_t* to)
                 if (IsLevelReference(a - 4, base, 0) ||
                     (a >= base + kMasterCameraTargetId && ReadGameDword(a - kMasterCameraTargetId, vtable) &&
                         vtable == kDuelMasterCameraVtable) ||
-                    OtherCharacterHolding(a, base, from, holder) != Holder::None) {
+                    OtherCharacterHolding(a, base, from, to, holder) != Holder::None) {
                     *reinterpret_cast<uint32_t*>(a) = freshId;
                     ++ids;
                 }
@@ -1195,7 +1260,7 @@ int RepointPlayerReferences(uint8_t* from, uint8_t* to)
                 continue;
             uintptr_t holder = 0;
             const Holder held = IsLevelReference(a, base, into) || into != 0 ? Holder::None
-                                                                              : OtherCharacterHolding(a, base, from, holder);
+                                                                              : OtherCharacterHolding(a, base, from, to, holder);
             if (!IsLevelReference(a, base, into) && held == Holder::None) {
                 ++kept;
                 continue;
@@ -1328,12 +1393,13 @@ bool ReplacePlayer(std::string& error)
     float scale = 1.0f;
     if (CharacterScale(old, scale) && scale != 1.0f)
         SetCharacterScale(fresh, scale);
-    // The old player goes, as the game removes its own objects. Its controller slot (+0x43C) is let go
-    // first: removing a character unbinds its slot (0x8ADD0 with -1), which would clear the controller
+    // The old player goes, as the game removes its own objects, with the projectiles in flight. Its
+    // controller slot (+0x43C) is let go first: removing a character unbinds its slot (0x8ADD0 with -1), which would clear the controller
     // entry's character (input manager [0x68D4F4] +0x1D8[slot] +0x7C), now the new player's; moves
     // that read the stick's direction then crashed on it (0x89329).
     *reinterpret_cast<int*>(old + kCharacterControl) = 0;
     reinterpret_cast<void(__fastcall*)(uint8_t*, void*, int)>(uintptr_t(kBindController))(old, nullptr, -1);
+    RemoveProjectiles();
     DestroyObject(old);
     if (!ControllerBoundTo(fresh)) {
         LOG_WARN("Characters: controller 0 lost the new player; bound again");
@@ -1346,28 +1412,8 @@ bool ReplacePlayer(std::string& error)
     return true;
 }
 
-// The AI controllers (TGCoreInterface's factory, 0x1365E0: 1 Pursue, 2 Attack, 3 Idle, 4 Patrol,
-// 5 Roam, 6 Stalk, 7 Wall, 8 Goto, 9 GiveItem, 14 Follow, 15 RunAway). A character's comes from its
-// AI data's "Controller" (+0x8) when it is placed; a Follow controller without a leader of its own
-// follows the player (0x183930). Patrol, Goto, Wall and GiveItem need the level's data and are left out.
-constexpr uint32_t kAIController = 0x08;
-
-const std::vector<SpawnBehaviour>& SpawnBehaviours()
-{
-    static const std::vector<SpawnBehaviour> kBehaviours = {
-        { "follow", 14, "Follows you, fighting at your side" },
-        { "attack", 2, "Attacks its enemies" },
-        { "pursue", 1, "Chases its enemies down" },
-        { "stalk", 6, "Stalks its enemies from a distance" },
-        { "roam", 5, "Wanders about" },
-        { "idle", 3, "Stays where it is until it sees an enemy" },
-        { "runaway", 15, "Runs away from its enemies" },
-    };
-    return kBehaviours;
-}
-
 bool SpawnCharacter(const char* className, const std::string& costume, const std::string& skin,
-    const std::string& mesh, SpawnSide side, int behaviour, std::string& error)
+    const std::string& mesh, SpawnSide side, std::string& error)
 {
     if (!PlayerAlive()) {
         error = "no mission is running";
@@ -1392,10 +1438,6 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
         error = std::string(name) + " wears " + CharacterBody(object) + ", a body another class wore in this level "
             "(pick another costume, or restart the mission)";
         return false;
-    }
-    if (behaviour > 0) {
-        if (uint8_t* ai = *reinterpret_cast<uint8_t**>(object + kCharacterAIData))
-            *reinterpret_cast<int32_t*>(ai + kAIController) = behaviour;
     }
     // In front of the player, facing it: right and forward turned round.
     float m[16];
@@ -1429,7 +1471,7 @@ bool SpawnCharacter(const char* className, const std::string& costume, const std
     }
     ++g_SpawnedInLevel;
     g_LastSpawned = object;
-    g_SpawnedCharacters.push_back({ object, *reinterpret_cast<uint32_t*>(object) });
+    g_SpawnedCharacters.push_back({ object, *reinterpret_cast<uint32_t*>(object + 4) });
     return true;
 }
 
@@ -1559,12 +1601,26 @@ int SpawnedCount()
 
 int RemoveSpawned()
 {
-    int removed = 0;
+    std::vector<uint8_t*> live;
     for (const SpawnedCharacter& spawned : g_SpawnedCharacters) {
-        // Still there: its vtable, and not already being deleted (+0x11D, as the manager's Delete checks).
-        if (*reinterpret_cast<uint32_t*>(spawned.object) != spawned.vtable || spawned.object[0x11D])
-            continue;
-        DestroyObject(spawned.object);
+        // Still there: the object manager finds it by its id (ObjectById).
+        if (reinterpret_cast<uint8_t*(__cdecl*)(uint32_t)>(uintptr_t(kObjectById))(spawned.id) == spawned.object)
+            live.push_back(spawned.object);
+    }
+    if (!live.empty()) {
+        // Nothing keeps aiming at them, and no bolt in the air involves them.
+        std::vector<uint8_t*> others;
+        for (uint8_t* c : LevelCharacters())
+            if (std::find(live.begin(), live.end(), c) == live.end())
+                others.push_back(c);
+        const int cleared = ClearTargetsOn(live, others);
+        if (cleared)
+            LOG_INFO("Characters: %d character(s) stopped targeting the spawned ones", cleared);
+        RemoveProjectiles();
+    }
+    int removed = 0;
+    for (uint8_t* object : live) {
+        DestroyObject(object);
         ++removed;
     }
     g_SpawnedCharacters.clear();

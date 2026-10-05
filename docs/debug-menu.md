@@ -30,14 +30,14 @@ Up/Down recall earlier commands.
 | `duelist [<slot> <class>]` | lists the versus select screen's fighters, or puts a character class in a slot (see below) |
 | `player [<class>\|- [<costume>] [skin <set>] [mesh <mesh>\|off]\|off]` | plays story levels as another character, costume, texture set or body (see below) |
 | `saber [red\|green\|blue\|purple\|<r> <g> <b>\|off]` | the player's saber colour, its own only, at once (see below) |
-| `spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally\|enemy] [<behaviour>]` | a character in front of you, at once (see below) |
+| `spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally\|enemy] [scale <size>]` | a character in front of you, at once (see below) |
 | `infiniteforce [on\|off]` | your Force stays full |
 | `peek <hex offset> [count]` | research: your character's fields from that offset, as hex and as numbers, in the console and log |
 | `team [spawned] [<hex teams>]` | research: your (or the last spawned character's) teams and AI data |
 | `findrefs [spawned]` | research: where the game keeps pointers to your character (or the last spawned one), with the type of the object holding each, in the console and log |
 | `memory` | the game's memory use and the characters spawned in this level (as the Game tab) |
 | `scale [<size>] [spawned]` | your size (or the last spawned character's): `scale 2` a giant, `scale 0.5` half size, 1 your own |
-| `characters` | every character in the level: side, behaviour, health, distance, target |
+| `characters` | every character in the level: side, AI controller, health, distance, target |
 | `despawn` | removes the characters you spawned in this level (the Characters tab's Remove spawned) |
 | `restart` | restarts the running mission (as the pause menu's Restart Mission does) |
 | `autorestart [on\|off]` | whether a `player` change applies at once during a mission: live, or by restarting it (on by default) |
@@ -192,11 +192,7 @@ stormtrooper's body, worn as its own copy, so the level's characters in that bod
 the first time), and fights for its class's side with its own AI (clones and droids attack Jedi, Jedi
 fight clones), or for the side you give it: `spawn IBattleDroid ally` fights for you, `spawn
 ICloneTrooper enemy` against you. A side is the game's own: an ally fights the level's enemies and
-they fight it, an enemy fights you and your allies. A **behaviour** can be given too, one of the
-game's AI behaviours: `follow` (it follows you wherever you go, fighting at your side: allies that
-follow make an army), `attack`, `pursue` (chases its enemies down), `stalk` (keeps its distance),
-`roam`, `idle` (stays put until it sees an enemy) or `runaway`, e.g. `spawn ICloneTrooper ally
-follow`; `scale <size>` makes it bigger or smaller (`spawn IVader scale 3`). `characters` lists every character in the level with its side, behaviour, health, distance
+they fight it, an enemy fights you and your allies. `scale <size>` makes it bigger or smaller (`spawn IVader scale 3`). `characters` lists every character in the level with its side, behaviour, health, distance
 and what it is attacking. Spawned characters stay until the mission restarts or the level changes, or until
 `despawn` removes them (those still in the level, the dead ones too if their bodies remain). Tested with
 100 at once (about 7 MiB more memory, no errors); large crowds lower the frame rate. A spawn
@@ -287,8 +283,7 @@ The buttons:
 What a command printed (the choice, or why it was refused) is in the Console tab.
 
 **Spawn** uses the Play-as picks above (class, costume, skin and body), with **How many** (1 to 5), **Side** (*Default*: its class's own; *Ally*, *Enemy*: as
-`spawn ... ally|enemy`), **Behaviour** (*Default*: its class's own; *follow* and the others, as
-above), **Size** and **Spawn** (`spawn`, once per character). **Remove spawned** (`despawn`) removes the
+`spawn ... ally|enemy`), **Size** and **Spawn** (`spawn`, once per character). **Remove spawned** (`despawn`) removes the
 characters you spawned in this level; their count is shown beside it.
 
 ## Game tab

@@ -242,7 +242,7 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  player [<class>|- [<costume>] [skin <set>] [mesh <mesh>|off]|off]");
     Print(LineKind::Output, "                           play as a character, costume or mesh (- = the level's own class)");
     Print(LineKind::Output, "  saber [red|green|blue|purple|<r> <g> <b>|off]  the player's saber colour, its own only");
-    Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy] [follow|attack|pursue|stalk|roam|idle|runaway]");
+    Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy]");
     Print(LineKind::Output, "                           [scale <size>]: a character in front of the player");
     Print(LineKind::Output, "  scale [<size>] [spawned]  your size (or the last spawned character's), 1 being its own");
     Print(LineKind::Output, "  infiniteforce [on|off]   your Force stays full");
@@ -502,13 +502,12 @@ void Saber(const std::vector<std::string>& words)
         Print(LineKind::Output, "  saber: the game's colours");
 }
 
-// spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy] [<behaviour>]. A body of another class's is worn
+// spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy] [scale <size>]. A body of another class's is worn
 // as a private copy (see game::PrivateBodyName), so the characters wearing the original keep theirs.
 void Spawn(const std::vector<std::string>& words)
 {
     std::string costume, skin, mesh;
     game::SpawnSide side = game::SpawnSide::Default;
-    int behaviour = 0;
     float scale = 0.0f;
     std::vector<std::string> rest;
     for (size_t i = 1; i < words.size(); ++i) {
@@ -516,14 +515,6 @@ void Spawn(const std::vector<std::string>& words)
             scale = float(atof(words[++i].c_str()));
             continue;
         }
-        bool isBehaviour = false;
-        for (const game::SpawnBehaviour& b : game::SpawnBehaviours())
-            if (_stricmp(words[i].c_str(), b.name) == 0) {
-                behaviour = b.controller;
-                isBehaviour = true;
-            }
-        if (isBehaviour)
-            continue;
         if (_stricmp(words[i].c_str(), "ally") == 0 || _stricmp(words[i].c_str(), "enemy") == 0) {
             side = _stricmp(words[i].c_str(), "ally") == 0 ? game::SpawnSide::Ally : game::SpawnSide::Enemy;
             continue;
@@ -538,7 +529,7 @@ void Spawn(const std::vector<std::string>& words)
         }
     }
     if (rest.empty() || rest.size() > 2) {
-        Print(LineKind::Error, "spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy] [follow|attack|pursue|stalk|roam|idle|runaway] [scale <size>]");
+        Print(LineKind::Error, "spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy] [scale <size>]");
         return;
     }
     const char* name = game::RegisteredClassName(rest[0].c_str());
@@ -551,7 +542,7 @@ void Spawn(const std::vector<std::string>& words)
         return;
     }
     std::string error;
-    if (game::SpawnCharacter(rest[0].c_str(), rest.size() == 2 ? rest[1] : "", skin, mesh, side, behaviour, error)) {
+    if (game::SpawnCharacter(rest[0].c_str(), rest.size() == 2 ? rest[1] : "", skin, mesh, side, error)) {
         if (scale >= 0.05f && scale <= 20.0f)
             game::SetCharacterScale(game::LastSpawnedObject(), scale);
         Print(LineKind::Output, "  spawned %s", name);
