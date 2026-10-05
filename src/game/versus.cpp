@@ -41,6 +41,8 @@ void ApplyDuelists()
     static std::string fromEnvironment[kDuelistCount];
     char spec[256] = {};
     if (GetEnvironmentVariableA("SWROTS_DUELISTS", spec, sizeof(spec))) {
+        // Kept for this process (fromEnvironment), not passed on to a relaunched one, as SWROTS_COMMANDS.
+        SetEnvironmentVariableA("SWROTS_DUELISTS", nullptr);
         char* context = nullptr;
         for (char* item = strtok_s(spec, ",", &context); item; item = strtok_s(nullptr, ",", &context)) {
             char* eq = strchr(item, '=');

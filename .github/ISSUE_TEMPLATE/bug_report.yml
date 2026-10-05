@@ -35,8 +35,10 @@ body:
     attributes:
       label: Log file
       description: |
-        Drag in `logs\swrots.log` from the game folder. If the game crashed and you started it again since,
-        attach `logs\swrots.previous.log` instead (it keeps the previous run).
+        Drag the file `logs\swrots.log` into this box: it is in the `logs` folder next to `swrots.exe` (on Linux or a
+        Steam Deck too). Please attach it even if nothing crashed: it records what the game was doing, and how fast
+        it ran. It must be from the session where the problem happened: the game starts a new one each time, and
+        keeps the one before as `logs\swrots.previous.log` (attach that one if you started the game again since).
     validations:
       required: true
   - type: input
