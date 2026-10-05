@@ -865,6 +865,7 @@ void ReserveFolders(uint8_t* scene, int extra)
 // clearing +0x50 of the lookup object ([kGameContext] + 0x148). Declaring an animation after that
 // sets the flag again, so the next lookup adds it (existing names are kept, not duplicated).
 constexpr int kAnimationType = 10;
+constexpr int kSoundType = 41; // .hwx
 constexpr int kMeshType = 4;
 
 void MarkAnimationIndexStale()
@@ -939,12 +940,23 @@ bool DeclareFromDisc(uint8_t* scene, const EnginePath* path, int typeId, const P
     size_t dot = stem.rfind('.');
     if (dot != std::string::npos && stem.find('\\', dot) == std::string::npos)
         stem.erase(dot);
-    if (!IsCharacterContent(stem))
+    // A sound effect is asked for by its bare name (d:\wep_ls_swing_quick_d_01); the PAKs keep it as
+    // audio\xbox\<name>.hwx. Levels hold only their own characters' (a Sith's saber swings, Vader's
+    // breathing, Force lightning), so a character a level does not have played silence.
+    const bool sound = typeId == kSoundType && stem.find('\\') == std::string::npos;
+    if (!sound && !IsCharacterContent(stem))
         return false;
 
     const PakIndex* owner = nullptr;
+    const std::string stored = sound ? "audio\\xbox\\" + stem : stem;
     const PakIndex::Entry* entry = FindElsewhere(nullptr,
-        [&](const PakIndex* index) { return index->FindStemWithData(stem, uint32_t(typeId)); }, owner);
+        [&](const PakIndex* index) { return index->FindStemWithData(stored, uint32_t(typeId)); }, owner);
+    if (entry && sound) {
+        // Read under its bare name: served as the stored one.
+        std::lock_guard<std::mutex> lock(g_AliasLock);
+        g_Aliases[stem] = entry->name;
+        g_Aliases[stem + ".hwx"] = entry->name;
+    }
     if (!entry && PrivateBodyOriginal(stem) != stem) {
         const std::string original = PrivateBodyOriginal(stem);
         entry = FindElsewhere(nullptr,
