@@ -260,6 +260,8 @@ void SpawnArea(const CharacterPicks& picks)
         spawn += " " + picks.costume;
     if (!picks.skin.empty())
         spawn += " skin " + picks.skin;
+    if (!picks.mesh.empty())
+        spawn += " mesh " + picks.mesh;
     if (side == 1)
         spawn += " ally";
     else if (side == 2)
@@ -273,7 +275,7 @@ void SpawnArea(const CharacterPicks& picks)
     if (!canSpawn)
         ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Characters of the picked class, costume and skin (not body) in front of you,\n"
+        ImGui::SetTooltip("Characters of the picked class, costume, skin and body in front of you,\n"
                           "until the mission restarts. Needs a class picked above and a running mission.");
     ImGui::SameLine();
     const bool anySpawned = game::SpawnedCount() > 0 && game::PlayerInLevel();

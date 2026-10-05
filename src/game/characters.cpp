@@ -1007,10 +1007,14 @@ const std::vector<std::pair<uintptr_t, size_t>>* g_ScanRegions = nullptr;
 
 bool InScanRegions(uintptr_t a, size_t size)
 {
-    for (const auto& [base, length] : *g_ScanRegions)
-        if (a >= base && a + size <= base + length)
-            return true;
-    return false;
+    // The regions are sorted by start: the last one starting at or below `a`.
+    const auto& regions = *g_ScanRegions;
+    auto it = std::upper_bound(regions.begin(), regions.end(), a,
+        [](uintptr_t value, const std::pair<uintptr_t, size_t>& r) { return value < r.first; });
+    if (it == regions.begin())
+        return false;
+    --it;
+    return a + size <= it->first + it->second;
 }
 
 bool PointsTo(uintptr_t a, uintptr_t value)
@@ -1051,10 +1055,42 @@ Holder OtherCharacterHolding(uintptr_t a, uintptr_t base, const uint8_t* self, u
     return Holder::None;
 }
 
+// The addresses in [base, base + size) holding a value in [lo, lo + span), `id` or `vtable`, up to
+// `capacity`: plain reads page by page (a page not readable is skipped), the first pass of
+// RepointPlayerReferences; the candidates are checked one by one afterwards. No C++ objects (SEH).
+size_t CollectCandidates(uintptr_t base, size_t size, uint32_t lo, uint32_t span, uint32_t id, uint32_t vtable,
+    uintptr_t* out, size_t capacity)
+{
+    size_t count = 0;
+    const uintptr_t end = base + size;
+    for (uintptr_t at = base; at < end && count < capacity;) {
+        // One run of pages with the same state at a time.
+        MEMORY_BASIC_INFORMATION info{};
+        if (VirtualQuery(reinterpret_cast<const void*>(at), &info, sizeof(info)) != sizeof(info))
+            break;
+        const uintptr_t runEnd = uintptr_t(info.BaseAddress) + info.RegionSize;
+        const uintptr_t to = runEnd < end ? runEnd : end;
+        if (info.State == MEM_COMMIT && !(info.Protect & (PAGE_NOACCESS | PAGE_GUARD))) {
+            __try {
+                for (uintptr_t a = (at + 3) & ~uintptr_t(3); a + 4 <= to; a += 4) {
+                    const uint32_t v = *reinterpret_cast<const uint32_t*>(a);
+                    if ((v - lo < span || v == id || v == vtable) && count < capacity)
+                        out[count++] = a;
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+            }
+        }
+        at = to;
+    }
+    return count;
+}
+
 int RepointPlayerReferences(uint8_t* from, uint8_t* to)
 {
+    const ULONGLONG started = GetTickCount64();
     std::vector<std::pair<uintptr_t, size_t>> regions = kernel::GameMemoryRegions();
     regions.push_back({ 0x00612BE0, 0x0096E000 - 0x00612BE0 }); // the image's .data and .bss
+    std::sort(regions.begin(), regions.end());
     g_ScanRegions = &regions;
     std::unordered_map<uintptr_t, bool> readable;
     g_ReadablePages = &readable;
@@ -1066,11 +1102,17 @@ int RepointPlayerReferences(uint8_t* from, uint8_t* to)
     int moved = 0, kept = 0;
     std::vector<uintptr_t> focusLists;
     int portraits = 0;
+    std::vector<uintptr_t> candidates(1 << 16);
+    size_t checked = 0;
     for (const auto& [base, size] : regions) {
-        for (uintptr_t a = base; a + 4 <= base + size; a += 4) {
+        const size_t found = CollectCandidates(base, size, old, 0x1200, oldId, kHudVitalsVtable, candidates.data(),
+            candidates.size());
+        checked += found;
+        for (size_t c = 0; c < found; ++c) {
+            const uintptr_t a = candidates[c];
             uint32_t v;
             if (!ReadGameDword(a, v))
-                break;
+                continue;
             // The HUD's portrait (HudVitals, 0x25E960, vtable slot 3) is picked once (+0xD set; +0xC when
             // there was none) from the player's class, into +0x10: picked again, it is the new player's.
             if (v == kHudVitalsVtable && a + 0x14 <= base + size) {
@@ -1128,7 +1170,8 @@ int RepointPlayerReferences(uint8_t* from, uint8_t* to)
         resolve(object, nullptr, *reinterpret_cast<uint32_t*>(object + 4));
     }
     LOG_INFO("Characters: %zu camera focus list(s) resolved again, %d HUD portrait(s) to pick again, %d "
-        "instance id(s) moved, %d other pointer(s) to the old player left (its own parts)", focusLists.size(), portraits, ids, kept);
+        "instance id(s) moved, %d other pointer(s) to the old player left (its own parts); %zu candidates, %llu ms",
+        focusLists.size(), portraits, ids, kept, checked, GetTickCount64() - started);
     g_ScanRegions = nullptr;
     g_ReadablePages = nullptr;
     return moved;

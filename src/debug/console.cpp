@@ -240,7 +240,7 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "  player [<class>|- [<costume>] [skin <set>] [mesh <mesh>|off]|off]");
     Print(LineKind::Output, "                           play as a character, costume or mesh (- = the level's own class)");
     Print(LineKind::Output, "  saber [red|green|blue|purple|<r> <g> <b>|off]  the player's saber colour, its own only");
-    Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>] [ally|enemy]  a character in front of the player");
+    Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy]  a character in front of the player");
     Print(LineKind::Output, "  infiniteforce [on|off]   your Force stays full");
     Print(LineKind::Output, "  memory                   the game's memory use, and the characters spawned");
     Print(LineKind::Output, "  despawn                  remove the characters you spawned");
@@ -498,9 +498,8 @@ void Saber(const std::vector<std::string>& words)
         Print(LineKind::Output, "  saber: the game's colours");
 }
 
-// spawn <class> [<costume>] [skin <set>]. No other body: a body's animation binding belongs to its mesh
-// file and is shared by everyone wearing it, so another class's would be rebuilt over theirs (the
-// player's included), and their animation then crashes.
+// spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy]. A body of another class's is worn
+// as a private copy (see game::PrivateBodyName), so the characters wearing the original keep theirs.
 void Spawn(const std::vector<std::string>& words)
 {
     std::string costume, skin, mesh;
@@ -521,12 +520,7 @@ void Spawn(const std::vector<std::string>& words)
         }
     }
     if (rest.empty() || rest.size() > 2) {
-        Print(LineKind::Error, "spawn <class> [<costume>] [skin <set>] [ally|enemy]");
-        return;
-    }
-    if (!mesh.empty()) {
-        Print(LineKind::Error, "spawn takes no mesh: a body's animation binding is shared by everyone wearing it, "
-            "and another class's crashes them");
+        Print(LineKind::Error, "spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy]");
         return;
     }
     const char* name = game::RegisteredClassName(rest[0].c_str());
