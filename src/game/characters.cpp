@@ -1107,6 +1107,9 @@ struct AIPart { uint32_t inCharacter, owner; };
 constexpr AIPart kAIParts[] = { { 0x9FC, 0x10 }, { kCharacterAIData, 0x29C } };
 constexpr uint32_t kDuelMasterCameraVtable = 0x005B4DC0; // IMasterCameraVader
 constexpr uint32_t kMasterCameraTargetId = 0x23C;
+// An instance id (object +4): a kind in the top four bits (0x4: made while playing, 0x7: the level's own
+// objects, the level's player among them) and an index in the low 16.
+static bool IsInstanceId(uint32_t id) { return (id >> 28) != 0 && (id & 0x0FFF0000u) == 0; }
 
 // The game memory being scanned (RepointPlayerReferences), to follow only pointers into it.
 const std::vector<std::pair<uintptr_t, size_t>>* g_ScanRegions = nullptr;
@@ -1375,7 +1378,7 @@ int RepointPlayerReferences(uint8_t* from, uint8_t* to)
             // duel's master camera (IMasterCameraVader +0x23C: it follows the id; with the old one it
             // stayed where it was until the next cutscene), and other characters and their AI (an
             // opponent's targets; the AI's at +0x418).
-            if (v == oldId && (oldId & 0xFFFF0000u) == 0x40000000u) {
+            if (v == oldId && IsInstanceId(oldId)) {
                 uintptr_t holder = 0;
                 uint32_t vtable = 0;
                 if (IsLevelReference(a - 4, base, 0) ||
