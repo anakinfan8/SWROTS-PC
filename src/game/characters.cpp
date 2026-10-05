@@ -192,6 +192,10 @@ bool g_RestartOnChange = true; // a change restarts the mission ([Debug] AutoRes
 // means for a live change.
 std::string g_LevelClassName;
 int g_LevelCostume = -1;
+// The player the level created, and whether in its own class (no choice): its maximum health is the
+// level's own (see ReplacePlayer).
+const uint8_t* g_LevelPlayerObject = nullptr;
+bool g_LevelPlayerIsOwn = false;
 
 void __cdecl SpawnPlayerHook(void* playerClass, int variant)
 {
@@ -477,6 +481,8 @@ int __stdcall PlayerVariant(void* player, int variant)
         *reinterpret_cast<const float**>(g_Player + kCharacterSaberColor) = g_SaberColor;
     if (!g_PlayerClass)
         g_LevelCostume = variant; // the level's costume for its own class
+    g_LevelPlayerObject = g_Player;
+    g_LevelPlayerIsOwn = !g_PlayerClass;
     const int chosen = g_PlayerClass ? VariantOnDisc(player, variant) : variant;
     return Dress(g_Player, chosen, g_PlayerVariant, g_PlayerSkin, g_PlayerMesh, g_PlayerList, "the player");
 }
@@ -778,6 +784,9 @@ void InstallCharacters()
     g_BodyClasses.clear();
     g_LevelMaxHealth = 0;
     g_ChosenMaxHealth = 0;
+    g_LevelCostume = -1; // taken again when the level's own player is created
+    g_LevelPlayerObject = nullptr;
+    g_LevelPlayerIsOwn = false;
     kernel::SetBeforeRelaunch(&HandChoiceToRelaunch);
     uint8_t* stub = AllocStub(16);
     std::memcpy(stub, reinterpret_cast<const void*>(uintptr_t(kSpawnPlayer)), 5);
@@ -1366,7 +1375,7 @@ int RepointPlayerReferences(uint8_t* from, uint8_t* to)
             // duel's master camera (IMasterCameraVader +0x23C: it follows the id; with the old one it
             // stayed where it was until the next cutscene), and other characters and their AI (an
             // opponent's targets; the AI's at +0x418).
-            if (v == oldId && oldId != 0) {
+            if (v == oldId && (oldId & 0xFFFF0000u) == 0x40000000u) {
                 uintptr_t holder = 0;
                 uint32_t vtable = 0;
                 if (IsLevelReference(a - 4, base, 0) ||
@@ -1526,8 +1535,8 @@ bool ReplacePlayer(std::string& error)
     const float oldHealth = *reinterpret_cast<const float*>(old + kCharacterHealth);
     const float oldMax = *reinterpret_cast<const float*>(old + kCharacterMaxHealth);
     float& freshMax = *reinterpret_cast<float*>(fresh + kCharacterMaxHealth);
-    if (g_LevelMaxHealth <= 0)
-        g_LevelMaxHealth = oldMax;
+    if (g_LevelMaxHealth <= 0 && old == g_LevelPlayerObject && g_LevelPlayerIsOwn)
+        g_LevelMaxHealth = oldMax; // the level's own player's, not a chosen class's
     if (g_ChosenMaxHealth > 0)
         freshMax = g_ChosenMaxHealth;
     else if (!g_PlayerClass && g_LevelMaxHealth > 0)
@@ -1675,7 +1684,11 @@ uint8_t* PlayerObject()
 
 uint8_t* LastSpawnedObject()
 {
-    return g_LastSpawned;
+    // Still in the level (the game removes dead characters' bodies in time).
+    if (!g_LastSpawned || g_SpawnedCharacters.empty() || g_SpawnedCharacters.back().object != g_LastSpawned)
+        return nullptr;
+    return reinterpret_cast<uint8_t*(__cdecl*)(uint32_t)>(uintptr_t(kObjectById))(g_SpawnedCharacters.back().id) == g_LastSpawned
+        ? g_LastSpawned : nullptr;
 }
 
 uint8_t* ReplacedPlayerObject()
