@@ -246,6 +246,7 @@ void SpawnArea(const CharacterPicks& picks)
     static int count = 1;
     static int side = 0;
     static int behaviour = 0; // 0: the class's own, else 1 + an index into game::SpawnBehaviours()
+    static float size = 1.0f;
     const float width = ImGui::GetContentRegionAvail().x / 4.0f;
     ImGui::SetNextItemWidth(width * 0.6f);
     ImGui::SliderInt("How many##spawn", &count, 1, 5);
@@ -274,6 +275,10 @@ void SpawnArea(const CharacterPicks& picks)
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("What it does: follow fights at your side wherever you go (with Ally: an army).");
     ImGui::SameLine();
+    ImGui::SetNextItemWidth(width * 0.6f);
+    ImGui::SliderFloat("Size##spawn", &size, 0.25f, 4.0f, "%.2fx", ImGuiSliderFlags_Logarithmic);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Their size (scale): 1 is their own.");
     std::string spawn = "spawn " + picks.className;
     if (!picks.costume.empty())
         spawn += " " + picks.costume;
@@ -287,6 +292,11 @@ void SpawnArea(const CharacterPicks& picks)
         spawn += " enemy";
     if (behaviour > 0)
         spawn += std::string(" ") + behaviours[behaviour - 1].name;
+    if (size != 1.0f) {
+        char scale[24];
+        snprintf(scale, sizeof(scale), " scale %.2f", size);
+        spawn += scale;
+    }
     const bool canSpawn = !picks.className.empty() && game::PlayerInLevel();
     if (!canSpawn)
         ImGui::BeginDisabled();
@@ -626,6 +636,17 @@ void GameTab()
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Sets your maximum health and fills it: a clone or droid has only a few hits'\n"
                           "worth. Until the mission restarts.");
+    float size = 1.0f;
+    game::CharacterScale(game::PlayerObject(), size);
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
+    if (ImGui::SliderFloat("Size##player", &size, 0.25f, 4.0f, "%.2fx", ImGuiSliderFlags_Logarithmic))
+        game::SetCharacterScale(game::PlayerObject(), size);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Your size (scale): 1 is your own. Kept when you change character; until the\n"
+                          "mission restarts. Ctrl+click to type a value.");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("1x##size"))
+        game::SetCharacterScale(game::PlayerObject(), 1.0f);
     if (!player.valid)
         ImGui::EndDisabled();
     // The game's level variables only set (reading them gives what was last set, not the player's):

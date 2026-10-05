@@ -89,6 +89,9 @@ struct PlayerInfo {
 PlayerInfo CurrentPlayer();
 // Every character in the running level (the player, the level's, spawned ones), alive or dead.
 std::vector<uint8_t*> LevelCharacters();
+// A character's size: the object's "Uniform scale" (1 is its own). False when it is not there.
+bool CharacterScale(const uint8_t* character, float& scale);
+bool SetCharacterScale(uint8_t* character, float scale);
 // Sets the running level's player's maximum health and fills it (a clone trooper has a few hits' worth).
 void SetPlayerMaxHealth(float health);
 // The running level's player object, or null (for research tools such as `peek`).

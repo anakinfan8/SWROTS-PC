@@ -243,7 +243,8 @@ void Help(uint8_t* console)
     Print(LineKind::Output, "                           play as a character, costume or mesh (- = the level's own class)");
     Print(LineKind::Output, "  saber [red|green|blue|purple|<r> <g> <b>|off]  the player's saber colour, its own only");
     Print(LineKind::Output, "  spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy] [follow|attack|pursue|stalk|roam|idle|runaway]");
-    Print(LineKind::Output, "                           a character in front of the player");
+    Print(LineKind::Output, "                           [scale <size>]: a character in front of the player");
+    Print(LineKind::Output, "  scale [<size>] [spawned]  your size (or the last spawned character's), 1 being its own");
     Print(LineKind::Output, "  infiniteforce [on|off]   your Force stays full");
     Print(LineKind::Output, "  memory                   the game's memory use, and the characters spawned");
     Print(LineKind::Output, "  despawn                  remove the characters you spawned");
@@ -508,8 +509,13 @@ void Spawn(const std::vector<std::string>& words)
     std::string costume, skin, mesh;
     game::SpawnSide side = game::SpawnSide::Default;
     int behaviour = 0;
+    float scale = 0.0f;
     std::vector<std::string> rest;
     for (size_t i = 1; i < words.size(); ++i) {
+        if (_stricmp(words[i].c_str(), "scale") == 0 && i + 1 < words.size()) {
+            scale = float(atof(words[++i].c_str()));
+            continue;
+        }
         bool isBehaviour = false;
         for (const game::SpawnBehaviour& b : game::SpawnBehaviours())
             if (_stricmp(words[i].c_str(), b.name) == 0) {
@@ -532,7 +538,7 @@ void Spawn(const std::vector<std::string>& words)
         }
     }
     if (rest.empty() || rest.size() > 2) {
-        Print(LineKind::Error, "spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy] [follow|attack|pursue|stalk|roam|idle|runaway]");
+        Print(LineKind::Error, "spawn <class> [<costume>] [skin <set>] [mesh <mesh>] [ally|enemy] [follow|attack|pursue|stalk|roam|idle|runaway] [scale <size>]");
         return;
     }
     const char* name = game::RegisteredClassName(rest[0].c_str());
@@ -545,8 +551,11 @@ void Spawn(const std::vector<std::string>& words)
         return;
     }
     std::string error;
-    if (game::SpawnCharacter(rest[0].c_str(), rest.size() == 2 ? rest[1] : "", skin, mesh, side, behaviour, error))
+    if (game::SpawnCharacter(rest[0].c_str(), rest.size() == 2 ? rest[1] : "", skin, mesh, side, behaviour, error)) {
+        if (scale >= 0.05f && scale <= 20.0f)
+            game::SetCharacterScale(game::LastSpawnedObject(), scale);
         Print(LineKind::Output, "  spawned %s", name);
+    }
     else
         Print(LineKind::Error, "%s", error.c_str());
 }
@@ -704,6 +713,27 @@ void Characters()
             ControllerName(s.controller), s.health, s.distance, s.target);
     }
     Print(LineKind::Output, "  %d character(s)", listed);
+}
+
+// scale [<factor>] [spawned]: your size (or the last spawned character's), 1 being its own.
+void Scale(const std::vector<std::string>& words)
+{
+    size_t next = 1;
+    float factor = 0.0f;
+    if (words.size() > next && _stricmp(words[next].c_str(), "spawned") != 0)
+        factor = float(atof(words[next++].c_str()));
+    const bool spawned = words.size() > next && _stricmp(words[next].c_str(), "spawned") == 0;
+    uint8_t* character = spawned ? game::LastSpawnedObject() : game::PlayerObject();
+    if (factor != 0.0f && (factor < 0.05f || factor > 20.0f || !game::SetCharacterScale(character, factor))) {
+        Print(LineKind::Error, character ? "scale: 0.05 to 20" : "no such character");
+        return;
+    }
+    float scale = 0.0f;
+    if (!game::CharacterScale(character, scale)) {
+        Print(LineKind::Error, "no such character");
+        return;
+    }
+    Print(LineKind::Output, "  %s scale: %.2f", spawned ? "spawned" : "your", scale);
 }
 
 // findrefs [spawned]: where the game keeps pointers to the player (or the last spawned character):
@@ -900,7 +930,7 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         command != "restart" && command != "autorestart" && command != "unlockprofile" &&
         command != "freecam" && command != "saber" && command != "spawn" && command != "peek" &&
         command != "infiniteforce" && command != "memory" && command != "team" &&
-        command != "findrefs" && command != "despawn" && command != "characters")
+        command != "findrefs" && command != "despawn" && command != "characters" && command != "scale")
         return false;
     Print(LineKind::Output, "> %s", line.c_str());
     if (command == "duelist") {
@@ -933,6 +963,8 @@ bool RunPortCommand(uint8_t* console, const std::string& line)
         FindRefs(words);
     } else if (command == "characters") {
         Characters();
+    } else if (command == "scale") {
+        Scale(words);
     } else if (command == "despawn") {
         Print(LineKind::Output, "  %d spawned character(s) removed", game::RemoveSpawned());
     } else if (command == "unlockprofile") {
@@ -1024,7 +1056,7 @@ void RunQueuedConsoleCommands()
             // and gone while a level loads).
             const std::vector<std::string> words = Words(line);
             static const char* const kStandalone[] = { "player", "variants", "meshes", "restart", "autorestart",
-                "duelist", "freecam", "saber", "spawn", "peek", "infiniteforce", "memory", "team", "findrefs", "despawn", "characters", "clear", "cls" };
+                "duelist", "freecam", "saber", "spawn", "peek", "infiniteforce", "memory", "team", "findrefs", "despawn", "characters", "scale", "clear", "cls" };
             const bool standalone = !words.empty() && std::any_of(std::begin(kStandalone), std::end(kStandalone),
                 [&](const char* c) { return _stricmp(words[0].c_str(), c) == 0; });
             if (standalone) {

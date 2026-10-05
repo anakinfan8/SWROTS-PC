@@ -36,6 +36,7 @@ Up/Down recall earlier commands.
 | `team [spawned] [<hex teams>]` | research: your (or the last spawned character's) teams and AI data |
 | `findrefs [spawned]` | research: where the game keeps pointers to your character (or the last spawned one), with the type of the object holding each, in the console and log |
 | `memory` | the game's memory use and the characters spawned in this level (as the Game tab) |
+| `scale [<size>] [spawned]` | your size (or the last spawned character's): `scale 2` a giant, `scale 0.5` half size, 1 your own |
 | `characters` | every character in the level: side, behaviour, health, distance, target |
 | `despawn` | removes the characters you spawned in this level (the Characters tab's Remove spawned) |
 | `restart` | restarts the running mission (as the pause menu's Restart Mission does) |
@@ -195,7 +196,7 @@ they fight it, an enemy fights you and your allies. A **behaviour** can be given
 game's AI behaviours: `follow` (it follows you wherever you go, fighting at your side: allies that
 follow make an army), `attack`, `pursue` (chases its enemies down), `stalk` (keeps its distance),
 `roam`, `idle` (stays put until it sees an enemy) or `runaway`, e.g. `spawn ICloneTrooper ally
-follow`. `characters` lists every character in the level with its side, behaviour, health, distance
+follow`; `scale <size>` makes it bigger or smaller (`spawn IVader scale 3`). `characters` lists every character in the level with its side, behaviour, health, distance
 and what it is attacking. Spawned characters stay until the mission restarts or the level changes, or until
 `despawn` removes them (those still in the level, the dead ones too if their bodies remain). Tested with
 100 at once (about 7 MiB more memory, no errors); large crowds lower the frame rate. A spawn
@@ -287,7 +288,7 @@ What a command printed (the choice, or why it was refused) is in the Console tab
 
 **Spawn** uses the Play-as picks above (class, costume, skin and body), with **How many** (1 to 5), **Side** (*Default*: its class's own; *Ally*, *Enemy*: as
 `spawn ... ally|enemy`), **Behaviour** (*Default*: its class's own; *follow* and the others, as
-above) and **Spawn** (`spawn`, once per character). **Remove spawned** (`despawn`) removes the
+above), **Size** and **Spawn** (`spawn`, once per character). **Remove spawned** (`despawn`) removes the
 characters you spawned in this level; their count is shown beside it.
 
 ## Game tab
@@ -299,7 +300,8 @@ switches, in one place.
   and maximum Force (Jedi-like characters), read from your character as you play (outside a mission: none; `player`
   in the console prints the same). **God mode**, **Infinite Force** (`infiniteforce`: your Force stays full; the game
   has no switch for it), **Refill health**, **Max health** (100 to 1000, filled
-  at once: a clone or droid has 50, a Jedi 1000; until the mission restarts), buttons setting the
+  at once: a clone or droid has 50, a Jedi 1000; until the mission restarts), **Size** (`scale`: 0.25 to
+  4 times your own, kept when you change character), buttons setting the
   **Force level**, **combat skill** and **Force power level** (0 to 3: they unlock moves and powers; the
   game's variables only set them, so the current level is not shown), and **your saber** colour
   (`saber`: the game's, red, green, blue, purple, or any colour; yours only, at once).

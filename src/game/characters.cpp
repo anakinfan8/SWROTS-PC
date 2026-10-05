@@ -1114,6 +1114,26 @@ std::vector<uint8_t*> LevelCharacters()
     return characters;
 }
 
+// IObject's "Uniform scale" (+0x194, IObject::Prop_Serialize 0xF5420), read where objects are drawn
+// and moved (e.g. 0x2971DA).
+constexpr uint32_t kObjectUniformScale = 0x194;
+
+bool CharacterScale(const uint8_t* character, float& scale)
+{
+    if (!character)
+        return false;
+    scale = *reinterpret_cast<const float*>(character + kObjectUniformScale);
+    return true;
+}
+
+bool SetCharacterScale(uint8_t* character, float scale)
+{
+    if (!character || !(scale > 0.0f))
+        return false;
+    *reinterpret_cast<float*>(character + kObjectUniformScale) = scale;
+    return true;
+}
+
 int RepointPlayerReferences(uint8_t* from, uint8_t* to)
 {
     const ULONGLONG started = GetTickCount64();
@@ -1300,10 +1320,14 @@ bool ReplacePlayer(std::string& error)
                 id = freshId;
         }
     }
-    // Its teams carry over (the port's own bit, which the player's allies share: see SpawnCharacter).
+    // Its teams carry over (the port's own bit, which the player's allies share: see SpawnCharacter),
+    // and its size.
     uint32_t teams = 0;
     if (CharacterTeams(old, teams) && teams)
         SetCharacterTeams(fresh, teams);
+    float scale = 1.0f;
+    if (CharacterScale(old, scale) && scale != 1.0f)
+        SetCharacterScale(fresh, scale);
     // The old player goes, as the game removes its own objects. Its controller slot (+0x43C) is let go
     // first: removing a character unbinds its slot (0x8ADD0 with -1), which would clear the controller
     // entry's character (input manager [0x68D4F4] +0x1D8[slot] +0x7C), now the new player's; moves
