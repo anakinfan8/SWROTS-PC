@@ -249,7 +249,8 @@ restart. How it works: [the camera system](research/camera-system.md).
 
 For screenshots, freeze the game and hide the HUD first: `set timeScale 0` and `set hud 0` (and
 `set timeScale 1`, `set hud 1` afterwards). The camera flies on real time, so it moves with the game
-frozen. `hud 0` hides the HUD but not the on-screen tips.
+frozen. `hud 0` hides the HUD but not the on-screen tips. `screenshot` then saves the picture to
+`screenshots\` without the debug menu in it.
 
 Some of the game's commands:
 

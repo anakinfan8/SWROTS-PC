@@ -111,7 +111,8 @@ and controller layouts: [controls](docs/controls.md).
 - Only the North American release is supported.
 - Playing as and spawning characters (debug menu) work in story levels only. A swapped or spawned
   character can show at another spot for a moment before it is placed, and some missions expect
-  their own character in cutscenes and scripted moments.
+  their own character in cutscenes and scripted moments. Vader has no breathing after a live change
+  into him in a level without Vader: restart the mission (he then starts the level) to have it.
 
 See the [issue tracker](../../issues) for the current list.
 
