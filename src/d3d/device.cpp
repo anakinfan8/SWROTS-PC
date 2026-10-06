@@ -159,6 +159,15 @@ static HRESULT __stdcall XbCreateDevice(UINT adapter, DWORD deviceType, HWND foc
     g_Device = hostDevice;
     if (FAILED(hr))
         Fatal("Could not create the Direct3D 9 device (%08lX).", hr);
+    static bool adapterLogged = false; // the device is made again at each video mode change
+    D3DADAPTER_IDENTIFIER9 gpu = {};
+    if (!adapterLogged && SUCCEEDED(g_D3D->GetAdapterIdentifier(D3DADAPTER_DEFAULT, 0, &gpu))) {
+        adapterLogged = true;
+        LOG_INFO("GPU: %s (vendor %04lX device %04lX), driver %s %u.%u.%u.%u", gpu.Description, gpu.VendorId,
+            gpu.DeviceId, gpu.Driver, HIWORD(gpu.DriverVersion.HighPart),
+            LOWORD(gpu.DriverVersion.HighPart), HIWORD(gpu.DriverVersion.LowPart),
+            LOWORD(gpu.DriverVersion.LowPart));
+    }
 
     const UINT hostWidth = pp->BackBufferWidth * g_RenderScale, hostHeight = pp->BackBufferHeight * g_RenderScale;
     if (FAILED(g_Device->CreateTexture(hostWidth, hostHeight, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,

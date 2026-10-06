@@ -36,10 +36,43 @@
 #include "kernel/mm.h"
 #include "kernel/reboot.h"
 #include "xapi/xapi.h"
+#include "version.h"
 
 namespace swrots {
 
 static XbeFile g_Xbe;
+
+// The system the game runs on, for bug reports: Windows' version, or Wine's (Proton, Linux, macOS), and
+// the CPU.
+static void LogSystem()
+{
+    HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+    using WineVersion = const char*(__cdecl*)();
+    using WineHost = void(__cdecl*)(const char** sysname, const char** release);
+    auto wineVersion = ntdll ? reinterpret_cast<WineVersion>(GetProcAddress(ntdll, "wine_get_version")) : nullptr;
+    auto wineBuild = ntdll ? reinterpret_cast<WineVersion>(GetProcAddress(ntdll, "wine_get_build_id")) : nullptr;
+    auto wineHost = ntdll ? reinterpret_cast<WineHost>(GetProcAddress(ntdll, "wine_get_host_version")) : nullptr;
+    if (wineVersion) {
+        const char* sysname = "?";
+        const char* release = "?";
+        if (wineHost)
+            wineHost(&sysname, &release);
+        LOG_INFO("System: Wine %s (%s) on %s %s", wineVersion(), wineBuild ? wineBuild() : "?", sysname, release);
+    } else {
+        using RtlGetVersionFn = LONG(WINAPI*)(OSVERSIONINFOW*);
+        auto rtlGetVersion = ntdll ? reinterpret_cast<RtlGetVersionFn>(GetProcAddress(ntdll, "RtlGetVersion")) : nullptr;
+        OSVERSIONINFOW v = { sizeof(v) };
+        if (rtlGetVersion && rtlGetVersion(&v) == 0)
+            LOG_INFO("System: Windows %lu.%lu build %lu", v.dwMajorVersion, v.dwMinorVersion, v.dwBuildNumber);
+    }
+    wchar_t cpu[128] = {};
+    DWORD size = sizeof(cpu);
+    RegGetValueW(HKEY_LOCAL_MACHINE, L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", L"ProcessorNameString",
+        RRF_RT_REG_SZ, nullptr, cpu, &size);
+    SYSTEM_INFO si = {};
+    GetNativeSystemInfo(&si);
+    LOG_INFO("System: %ls, %lu logical cores", cpu[0] ? cpu : L"unknown CPU", si.dwNumberOfProcessors);
+}
 
 static std::wstring ExeDirectory()
 {
@@ -194,7 +227,8 @@ static void Run(void* reserveBase, unsigned reserveSize, void* contiguousBase, u
     LogInit(logPath.c_str(), console, relaunch);
     if (relaunch)
         LOG_INFO("---- The game was restarted to reboot (fallback) ----");
-    LOG_INFO("Star Wars: Episode III - Revenge of the Sith (PC) starting");
+    LOG_INFO("Star Wars: Episode III - Revenge of the Sith (PC) starting, SWROTS-PC %s", SWROTS_VERSION);
+    LogSystem();
     LoadSettings(ini);
 
     // First run: install the game files from the player's disc image

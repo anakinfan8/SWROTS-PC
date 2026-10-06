@@ -54,7 +54,13 @@ set(IMGUI_SOURCES
 
 add_library(SWROTSCore SHARED ${CORE_SOURCES} ${CORE_HEADERS} ${IMGUI_SOURCES})
 source_group(imgui FILES ${IMGUI_SOURCES})
-target_include_directories(SWROTSCore PRIVATE src ${IMGUI_DIR})
+target_include_directories(SWROTSCore PRIVATE src ${IMGUI_DIR} ${CMAKE_BINARY_DIR}/generated)
+# The version for the log (generated/version.h, from git describe at every build).
+add_custom_target(SWROTSVersion
+  COMMAND ${CMAKE_COMMAND} -DSOURCE=${CMAKE_SOURCE_DIR} -DOUTPUT=${CMAKE_BINARY_DIR}/generated/version.h
+          -P ${CMAKE_SOURCE_DIR}/tools/version.cmake
+  BYPRODUCTS ${CMAKE_BINARY_DIR}/generated/version.h)
+add_dependencies(SWROTSCore SWROTSVersion)
 target_compile_definitions(SWROTSCore PRIVATE
   WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS UNICODE _UNICODE)
 target_compile_options(SWROTSCore PRIVATE /W3 /GS- /EHsc /Zi /utf-8)

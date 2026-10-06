@@ -229,6 +229,14 @@ static bool EnsureEngine()
         g_AudioFailed = true;
         return false;
     }
+    // What the output device is (the game mixes to stereo; the device's own layout is converted to by
+    // XAudio2, or by Wine's on Linux): for reports of sound on one side only.
+    XAUDIO2_VOICE_DETAILS master = {};
+    g_Master->GetVoiceDetails(&master);
+    DWORD layout = 0;
+    g_Master->GetChannelMask(&layout);
+    LOG_INFO("Audio: output %u channel(s) at %u Hz, speaker layout %08lX", master.InputChannels,
+        master.InputSampleRate, layout);
     if (RunningInBackground()) // a background test run (core/window.h) is silent
         g_Master->SetVolume(0.0f);
     LOG_INFO("Audio: XAudio2 ready (48 kHz stereo)");
