@@ -3,6 +3,7 @@
 ## Playing
 
 - [Installing](install.md): setup from your disc image, the folder layout, reinstalling
+- [Linux, Steam Deck and handhelds](linux.md): playing through Proton
 - [Settings](settings.md): `settings.ini`: window, graphics, frame rate, developer options
 - [Controls](controls.md): keyboard, mouse and controllers, `controls.ini`
 - [Debug menu](debug-menu.md): the game's own console, variables and debug displays, and playing

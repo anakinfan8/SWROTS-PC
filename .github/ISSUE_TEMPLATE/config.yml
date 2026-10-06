@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Discussions
+    url: https://github.com/jedijosh920/SWROTS-PC/discussions
+    about: Questions, mods and guides you made, setups that work (Linux, handhelds). Issues are for bugs.
   - name: Documentation
     url: https://github.com/jedijosh920/SWROTS-PC/tree/main/docs
     about: Installing, settings, controls, the debug menu and modding.

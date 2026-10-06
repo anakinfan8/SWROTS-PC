@@ -91,6 +91,7 @@ and controller layouts: [controls](docs/controls.md).
 | | |
 |---|---|
 | [Installing](docs/install.md) | Setup, the folder layout, reinstalling |
+| [Linux and Steam Deck](docs/linux.md) | Playing through Proton (community guide) |
 | [Settings](docs/settings.md) | Window, graphics, frame rate, developer options |
 | [Controls](docs/controls.md) | Keyboard, mouse and controllers |
 | [Debug menu](docs/debug-menu.md) | The game's console, variables and debug displays |

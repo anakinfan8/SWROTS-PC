@@ -1,0 +1,47 @@
+# Linux, Steam Deck and handhelds
+
+SWROTS-PC is a Windows program, and runs on Linux through Proton (Steam's compatibility layer). These
+steps come from the community: chatgipity ran it this way on a ROG Ally X and an Intel laptop with
+Bazzite 44 and Proton Experimental (SWROTS-PC v0.2.1 to v0.3.1); others play it on a Steam Deck with
+Proton GE. They should work on any Linux with Steam.
+
+You need your own copy of the game as an `.iso` ([installing](install.md)). Use the `.iso` itself rather
+than an archive: unpacking archives relies on a Windows tool that Proton may not have.
+
+## Setting up
+
+1. **Add it to Steam.** Download and extract the release `.zip`, right-click `swrots.exe` and choose
+   **Add to Steam** (on a Steam Deck, from Desktop Mode).
+2. **Choose Proton.** In Steam, right-click the new `swrots.exe` entry: **Properties → Compatibility →
+   Force the use of a specific Steam Play compatibility tool**, and pick **Proton Experimental** (or
+   another Proton).
+3. **Create its Proton folder.** Launch it once. When it says that the game files are not installed yet,
+   close the message with the **X**. Steam has now made the game's own Windows folder (its *prefix*).
+4. **Find the prefix.** A non-Steam game gets a number of its own (its app ID). Protontricks lists it next
+   to `swrots.exe`; the prefix is then:
+
+   ```
+   /home/<you>/.steam/steam/steamapps/compatdata/<app ID>/pfx/dosdevices/c:/
+   ```
+
+5. **Move the game into it.** There, create `Games/SWROTS/`, and copy `swrots.exe`, `core.dll` and your
+   `.iso` into it.
+6. **Point Steam at it.** In the entry's **Properties**, set:
+   - **Target**: the full path of that `swrots.exe`, in quotation marks:
+     `"/home/<you>/.steam/steam/steamapps/compatdata/<app ID>/pfx/dosdevices/c:/Games/SWROTS/swrots.exe"`
+   - **Start In**: the folder it is in, without quotation marks:
+     `/home/<you>/.steam/steam/steamapps/compatdata/<app ID>/pfx/dosdevices/c:/Games/SWROTS/`
+7. **Install.** Launch it. At the same message, choose **OK**, and pick your `.iso` in the file dialog. The
+   game files are copied and the game starts.
+
+Settings and controls are the `.ini` files in that folder ([settings](settings.md), [controls](controls.md)).
+
+## Updating
+
+Extract the new release and replace `swrots.exe` and `core.dll` in `c:/Games/SWROTS/` inside the prefix.
+The game files, saves, settings and mods stay.
+
+## Reporting a problem
+
+Include `logs/swrots.log` from that folder. Since v0.3.1 it records the Proton (Wine) version, the GPU,
+the sound output and the frame rate, so please say which Proton you chose too.
