@@ -13,4 +13,5 @@ No PAK rebuilding or disc image editing is needed.
 - [File formats](file-formats.md): what is known about the PAK, STX, MSH formats and the character table
 
 Never redistribute the game's own files. Share mods as the changed files, or better as a
-script or tool that produces them from the user's own copy of the game.
+script or tool that produces them from the user's own copy of the game. Post them, and guides you
+write, in [Discussions](https://github.com/jedijosh920/SWROTS-PC/discussions) (*Show and tell*).

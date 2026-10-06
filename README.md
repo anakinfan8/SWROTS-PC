@@ -123,6 +123,12 @@ Open an [issue](../../issues/new/choose) and attach `logs\swrots.log` (next to `
 game crashed and you have started it again since, attach `logs\swrots.previous.log` instead: it keeps
 the run before. Say what you were doing, which level, and whether it happens every time.
 
+## Mods, guides and questions
+
+Share mods, guides, screenshots and setups that work (Linux, handhelds), or ask for help, in
+[Discussions](../../discussions). Issues are for bugs. Share only your own work, never the game's own
+files ([modding](docs/modding/README.md)).
+
 ## Roadmap
 
 - PC button prompts and wording (keyboard, mouse and PlayStation icons).
