@@ -110,6 +110,9 @@ and controller layouts: [controls](docs/controls.md).
   by loose files yet, and loose text resources in folders the disc also has (e.g. `gameinfo\`) fail
   to load.
 - Only the North American release is supported.
+- On Intel integrated graphics (e.g. Iris Xe), lightsaber blades can show away from their hilts. On a
+  laptop that also has an NVIDIA or AMD graphics card, set `swrots.exe` to **High performance** in
+  Windows' graphics settings ([troubleshooting](docs/install.md#troubleshooting)).
 - Playing as and spawning characters (debug menu) work in story levels only. A swapped or spawned
   character can show at another spot for a moment before it is placed, and some missions expect
   their own character in cutscenes and scripted moments. Vader has no breathing after a live change

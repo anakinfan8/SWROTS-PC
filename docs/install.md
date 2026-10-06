@@ -30,3 +30,13 @@ and mods (`mods\`) are kept.
 | `settings.ini` | [Settings](settings.md) |
 | `controls.ini` | [Controls](controls.md) |
 | `logs\` | `swrots.log` (this run; include it when reporting a problem), `swrots.previous.log` (the run before, e.g. one that crashed), `Message.log` (the game's own messages) |
+
+## Troubleshooting
+
+- **Lightsaber blades away from their hilts** (seen on Intel Iris Xe integrated graphics): Intel's graphics
+  driver draws them in the wrong place. On a laptop that also has an NVIDIA or AMD graphics card, let the game
+  use it: Windows Settings → System → Display → Graphics → add `swrots.exe` → **High performance**. Otherwise,
+  update the Intel graphics driver.
+- **On Linux, a Steam Deck or a handheld**: see [Linux, Steam Deck and handhelds](linux.md).
+- **Anything else**: [report it](https://github.com/jedijosh920/SWROTS-PC/issues/new/choose) with
+  `logs\swrots.log`; it records your system, graphics card and frame rate.
