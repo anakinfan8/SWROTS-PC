@@ -171,3 +171,11 @@ The game itself is not included and is not distributed by this project; you must
 - **Cxbx-Reloaded** and its contributors, whose research into the Xbox and its libraries this port
   builds on, and whose shader translation it adapts.
 - **Dear ImGui** by Omar Cornut and contributors, for the debug menu.
+
+### Community
+
+- [@chatgipity](https://github.com/chatgipity): the [Linux and handheld guide](docs/linux.md).
+- [@anakinfan8](https://github.com/anakinfan8): testing on a Mac that found the crashes after restarts
+  ([#2](../../issues/2), [#3](../../issues/3)), and the [lightsaber hilt modding guide](../../discussions/11).
+- [@QTG128](https://github.com/QTG128): the first bug report, which found the missing sound at startup
+  ([#1](../../issues/1)).
