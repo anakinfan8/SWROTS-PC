@@ -3,7 +3,10 @@
 What changed in each release of SWROTS-PC, newest first. Downloads are on the
 [releases page](https://github.com/jedijosh920/SWROTS-PC/releases).
 
-## Unreleased
+## [v0.3.1](https://github.com/jedijosh920/SWROTS-PC/releases/tag/v0.3.1) - 2026-10-05
+
+Characters keep their own sounds in other levels, the duel camera follows a character change again,
+and bug reports' logs tell more.
 
 ### Added
 
