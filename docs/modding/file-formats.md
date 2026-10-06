@@ -41,10 +41,13 @@ source name (`human.cap`, `bonegroups.xml`).
 
 The port's own texture code (`src/d3d/textures.cpp`) handles the Xbox formats at render time.
 
+On `meshes\weapons\lsaberanakin\vosasaber.stx` (128x128, format 0x40) the DXT1 blocks are stored in
+row order, not swizzled; `tools/weapons/stx.py` reads and writes this case.
+
 ## MSH mesh
 
-Only the string data is documented so far. Texture references are zero-terminated strings
-relative to the mesh's folder, stored consecutively, for example:
+Texture references are zero-terminated strings relative to the mesh's folder, stored
+consecutively, for example:
 
 ```
 palpatine_grey\0..\..\SharedMaps\SpecularMap\0palpatine_grey\0..\..\SharedMaps\SpecularMap\0
@@ -52,6 +55,39 @@ palpatine_grey\0..\..\SharedMaps\SpecularMap\0palpatine_grey\0..\..\SharedMaps\S
 
 Shader-group names follow (`palpatine_greyGeo_palpatineBodySG`). The engine requests
 `<mesh folder>\<name>.stx` for each reference, but only if the level's PAK lists that texture.
+
+### Static weapon meshes
+
+The layout of a weapon mesh, from `meshes\weapons\lsaberanakin\lsaberanakin.msh`;
+`tools/weapons/msh.py` rebuilds that file byte for byte from it, and the game loads meshes written
+this way with other vertex and triangle counts (1084 and 838 against the original's 262 and 202).
+Character meshes (skinned, with bones) have not been looked at.
+
+| Offset | Size | Field |
+|---|---|---|
+| 0x064 | 16 | bounding sphere: centre x, y, z and radius (floats) |
+| 0x088 | 4 | triangle count |
+| 0x114 | 4 | vertex count |
+| 0x118 | 36 each | vertices (below) |
+| after the vertices | 16 | not understood |
+| +16 | 4 + 4 | index count, twice |
+| +24 | 2 each | indices (u16), one triangle strip |
+| then | | the tail: the strings above, with more fields (below) |
+
+A vertex: position (3 floats), normal (3 unsigned bytes, `b / 127.5 - 1`, and a pad byte), uv
+(2 floats), a second uv set (8 bytes, zero on the weapons seen), colour (4 bytes).
+
+The strip joins separate strips with repeated indices: triangles with a repeated index are skipped,
+and every odd triangle has its winding reversed. The game is left-handed (z reversed against an
+OBJ file).
+
+In the tail: three u16 counts at +0x08 (vertices, triangles, 3 x triangles) and the bounding box at
++0xC2 (min x, y, z, max x, y, z, floats). Two u32 values in it (39 on `lsaberanakin`) are not
+understood.
+
+A weapon's other files: `.gat` names its attachment points (`ATT_saber_base`, `ATT_saber_middle`,
+`ATT_sabertip` for a lightsaber; the blade starts at `ATT_saber_base`), `.gin` its bound
+(`bound_B01`). See [replacing weapons](replacing-weapons.md).
 
 ## Character skin table
 

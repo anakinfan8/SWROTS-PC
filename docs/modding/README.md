@@ -8,6 +8,8 @@ No PAK rebuilding or disc image editing is needed.
 - [Replacing textures](replacing-textures.md): STX textures and the embedded-name rule
 - [Swapping characters](swapping-characters.md): a character model swap, worked through with Palpatine
   (to just play as another character or body, see the [debug menu](../debug-menu.md#playing-as-another-character))
+- [Replacing weapons](replacing-weapons.md): a lightsaber hilt replaced, the story and versus sabers, and the
+  weapon tools in `tools/weapons/`
 - [Adding versus fighters](adding-versus-fighters.md): giving a character its own versus select-screen slot
 - [How loading works](how-loading-works.md): level PAKs, load order and what the port does to allow overrides
 - [File formats](file-formats.md): what is known about the PAK, STX, MSH formats and the character table
