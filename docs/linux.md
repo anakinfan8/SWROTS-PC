@@ -1,9 +1,10 @@
-# Linux, Steam Deck and handhelds
+# Linux and handheld compatability
 
-SWROTS-PC is a Windows program, and runs on Linux through Proton (Steam's compatibility layer). These
-steps come from the community: chatgipity ran it this way on a ROG Ally X and an Intel laptop with
-Bazzite 44 and Proton Experimental (SWROTS-PC v0.2.1 to v0.3.1); others play it on a Steam Deck with
-Proton GE. They should work on any Linux with Steam.
+SWROTS-PC is a Windows program, but runs on Linux through Proton (Steam's compatibility layer). These
+steps were performed, reviewed, and submitted by community member chatgipity. Hardware tested includes 
+an ALLY X handheld, Intel Slim 7i laptop, and an AMD 5700x3d desktop. Each device was running Bazzite 44, 
+a Fedora-based Linux OS and tested with Proton Experimental on each release from SWROTS-PC v0.2.1 to v0.3.1. 
+Another user reported playing on a Steam Deck LCD (Steam OS) using Proton GE 10-24.
 
 You need your own copy of the game as an `.iso` ([installing](install.md)). Use the `.iso` itself rather
 than an archive: unpacking archives relies on a Windows tool that Proton may not have.
@@ -11,27 +12,27 @@ than an archive: unpacking archives relies on a Windows tool that Proton may not
 ## Setting up
 
 1. **Add it to Steam.** Download and extract the release `.zip`, right-click `swrots.exe` and choose
-   **Add to Steam** (on a Steam Deck, from Desktop Mode).
+   **Add to Steam** (if on a Steam Deck, this will be from Desktop Mode).
 2. **Choose Proton.** In Steam, right-click the new `swrots.exe` entry: **Properties → Compatibility →
    Force the use of a specific Steam Play compatibility tool**, and pick **Proton Experimental** (or
-   another Proton).
-3. **Create its Proton folder.** Launch it once. When it says that the game files are not installed yet,
+    Proton GE).
+4. **Create its Proton folder.** Launch it once. When it says that the game files are not installed yet,
    close the message with the **X**. Steam has now made the game's own Windows folder (its *prefix*).
-4. **Find the prefix.** A non-Steam game gets a number of its own (its app ID). Protontricks lists it next
-   to `swrots.exe`; the prefix is then:
+5. **Find the prefix.** A non-Steam game gets a number of its own (its app ID). The Protontricks app lists
+6. it next to `swrots.exe`; the prefix is then:
 
    ```
    /home/<you>/.steam/steam/steamapps/compatdata/<app ID>/pfx/dosdevices/c:/
    ```
 
-5. **Move the game into it.** There, create `Games/SWROTS/`, and copy `swrots.exe`, `core.dll` and your
+7. **Move the game into it.** There, create `Games/SWROTS/`, and copy `swrots.exe`, `core.dll` and your
    `.iso` into it.
-6. **Point Steam at it.** In the entry's **Properties**, set:
+8. **Point Steam at it.** In the entry's **Properties**, set:
    - **Target**: the full path of that `swrots.exe`, in quotation marks:
      `"/home/<you>/.steam/steam/steamapps/compatdata/<app ID>/pfx/dosdevices/c:/Games/SWROTS/swrots.exe"`
    - **Start In**: the folder it is in, without quotation marks:
      `/home/<you>/.steam/steam/steamapps/compatdata/<app ID>/pfx/dosdevices/c:/Games/SWROTS/`
-7. **Install.** Launch it. At the same message, choose **OK**, and pick your `.iso` in the file dialog. The
+9. **Install.** Launch it. At the same message, choose **OK**, and pick your `.iso` in the file dialog. The
    game files are copied and the game starts.
 
 Settings and controls are the `.ini` files in that folder ([settings](settings.md), [controls](controls.md)).
