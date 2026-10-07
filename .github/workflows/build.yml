@@ -19,6 +19,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # A pull request's own commits, not the test merge GitHub makes for it (which carries the
+          # pull request opener's account email, not one of the repository's commits).
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Check files and commits
         env:
           HYGIENE_WORDS: ${{ vars.HYGIENE_WORDS }}
