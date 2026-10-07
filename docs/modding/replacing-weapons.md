@@ -39,6 +39,10 @@ keeping its emitter at the original's height; the `.gat` and `.gin` files can st
 A hilt meant for every appearance goes in both of a character's folders. The two `lsaberanakin*` folders
 take the same files, the mesh renamed.
 
+In an Anakin against Anakin match, both players show the replaced hilt, and player 2's looks the same as
+player 1's: the darker player 2 textures ([the versus
+roster](../research/versus-roster.md#player-2-against-itself-sith-yoda)) do not reach the saber.
+
 ## Installing
 
 ```
@@ -81,7 +85,4 @@ the generated files: those keep the original files' headers and strings. Post th
 - Only static weapon meshes are handled (`lsaberanakin` and `lsaberanakinduel` were tested). Two values in a
   mesh's tail are not understood and are copied from the template.
 - `stx.py` handles DXT1 only (format `0x40`, unswizzled blocks, as on `vosasaber.stx`).
-- In an Anakin against Anakin match, player 2 may use darker `_duel` textures (see
-  [the versus roster](../research/versus-roster.md#player-2-against-itself-sith-yoda)); untested with a
-  replaced hilt.
 - Hilts in the pre-rendered movies are part of the video.
