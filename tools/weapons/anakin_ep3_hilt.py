@@ -35,7 +35,7 @@ import stx  # noqa: E402
 
 # --- where the parts sit round the hilt ----------------------------------------------------------------
 PLATE_DEG = 180                      # etched plate on its chrome block
-HOOK_DEG = PLATE_DEG - 15            # gold hook on the knurled band, beside the plate
+HOOK_SIDE = -1                       # gold hook: on the clamp box's side face, -1 = the side towards the button
 PORT_DEG = PLATE_DEG - 28            # two-pin port
 PORT2_DEG = PLATE_DEG - 152          # the second two-pin port, across the button from the first
 BUTTON_DEG = PLATE_DEG - 90          # copper button in an oval chrome bezel
@@ -58,12 +58,13 @@ def size(mm):
 
 
 N = 12                               # sides of the round parts
+SHELL_N = 48                         # sides of the emitter shell, whose cut climbs steeply round the sides
 
 # --- texture atlas: regions of the 128x128 texture, (x, y, w, h), multiples of 4 so DXT1 blocks never
 #     straddle two regions ----------------------------------------------------------------------------------
 REGIONS = {"smooth": (0, 0, 96, 32), "knurl": (0, 32, 96, 32), "black": (0, 64, 48, 32), "cap": (48, 64, 32, 32),
            "core": (0, 96, 48, 32), "ring": (96, 0, 16, 16), "port": (96, 16, 16, 16), "btn": (96, 32, 32, 32),
-           "emit": (96, 64, 32, 32), "plate": (64, 96, 64, 32)}
+           "emit": (96, 64, 32, 32), "plate": (64, 96, 64, 32), "knob": (80, 64, 16, 32)}
 INSET = 1.5                          # texels kept clear of a region's edge, against filtering bleed
 
 
@@ -119,47 +120,67 @@ class Builder:
 
 
 # --- shapes ------------------------------------------------------------------------------------------------
-def lathe(b, y0, y1, r0, r1, region, ytop=None):
+def lathe(b, y0, y1, r0, r1, region, ytop=None, n=N):
     """A ring of the hilt's body from (y0, r0) to (y1, r1); ytop(angle) can slant its top edge."""
     length = math.hypot(r1 - r0, y1 - y0)
     nr, ny = (y1 - y0) / length, -(r1 - r0) / length
     rings = []
     for end, (y, r, fv) in enumerate(((y0, r0, 1.0), (y1, r1, 0.0))):
         ring = []
-        for k in range(N + 1):
-            th = 2 * math.pi * k / N
+        for k in range(n + 1):
+            th = 2 * math.pi * k / n
             s, c = math.sin(th), math.cos(th)
             yy = ytop(th) if (end == 1 and ytop) else y
-            ring.append(b.vert((r * s, yy, r * c), rect(region, k / N, fv), (nr * s, ny, nr * c)))
+            ring.append(b.vert((r * s, yy, r * c), rect(region, k / n, fv), (nr * s, ny, nr * c)))
         rings.append(ring)
-    for k in range(N):
+    for k in range(n):
         b.quad(rings[0][k], rings[0][k + 1], rings[1][k + 1], rings[1][k])
 
 
-def lathe_inner(b, y0, r, ytop, region):
+def knurl_band(b, y0, y1, r, repeats=2):
+    """The knurled band: a cylinder whose texture wraps `repeats` times around, so its studs come out
+    square (the texture region is three times wider than it is tall). Each segment has its own vertices,
+    so the texture can restart where a repeat ends."""
+    per = N // repeats
+    for k in range(N):
+        t0, t1 = 2 * math.pi * k / N, 2 * math.pi * (k + 1) / N
+        u0, u1 = (k % per) / per, (k % per + 1) / per
+        quad = []
+        for th, u, y, fv in ((t0, u0, y0, 1.0), (t1, u1, y0, 1.0), (t1, u1, y1, 0.0), (t0, u0, y1, 0.0)):
+            s_, c_ = math.sin(th), math.cos(th)
+            quad.append(b.vert((r * s_, y, r * c_), rect("knurl", u, fv), (s_, 0, c_)))
+        b.quad(*quad)
+
+
+def lathe_inner(b, y0, r, ytop, region, n=N):
     """The inside wall of the emitter shell (normals pointing in)."""
     rings = []
     for end in (0, 1):
         ring = []
-        for k in range(N + 1):
-            th = 2 * math.pi * k / N
+        for k in range(n + 1):
+            th = 2 * math.pi * k / n
             s, c = math.sin(th), math.cos(th)
             yy = y0 if end == 0 else ytop(th)
-            ring.append(b.vert((r * s, yy, r * c), rect(region, k / N, 1.0 - end), (-s, 0, -c)))
+            ring.append(b.vert((r * s, yy, r * c), rect(region, k / n, 1.0 - end), (-s, 0, -c)))
         rings.append(ring)
-    for k in range(N):
+    for k in range(n):
         b.quad(rings[0][k], rings[0][k + 1], rings[1][k + 1], rings[1][k])
 
 
-def rim(b, r_out, r_in, ytop, region):
-    """The top edge of the emitter shell, between its outside and inside walls."""
+def rim(b, r_out, r_in, ytop, region, n=N):
+    """The top edge of the emitter shell, between its outside and inside walls. Where the edge climbs
+    steeply the face tilts with it, so its normal follows the edge's slope."""
     outer, inner = [], []
-    for k in range(N + 1):
-        th = 2 * math.pi * k / N
+    for k in range(n + 1):
+        th = 2 * math.pi * k / n
         s, c = math.sin(th), math.cos(th)
-        outer.append(b.vert((r_out * s, ytop(th), r_out * c), rect(region, k / N, 0), (0, 1, 0)))
-        inner.append(b.vert((r_in * s, ytop(th), r_in * c), rect(region, k / N, .1), (0, 1, 0)))
-    for k in range(N):
+        e = 1e-3
+        r_mid = (r_out + r_in) / 2
+        slope = (ytop(th + e) - ytop(th - e)) / (2 * e * r_mid)          # rise per unit of arc length
+        nrm = (-slope * c, 1.0, slope * s)                                # up, tipped against the climb
+        outer.append(b.vert((r_out * s, ytop(th), r_out * c), rect(region, k / n, 0), nrm))
+        inner.append(b.vert((r_in * s, ytop(th), r_in * c), rect(region, k / n, .1), nrm))
+    for k in range(n):
         b.quad(outer[k], outer[k + 1], inner[k + 1], inner[k])
 
 
@@ -200,6 +221,50 @@ def cylinder(b, origin, axis, up, r, h0, h1, side, end, n=12, stretch=1.0):
            for p, nr, k in ring_points(h1)]
     for k in range(n):
         b.tri(centre, top[k], top[k + 1])
+
+
+def spool(b, origin, axis, up, runs, region, n=24):
+    """A body of revolution round `axis` from `origin`: `runs` is a list of profiles, each a list of
+    (height, radius) points shaded smoothly along itself; corners between runs stay sharp."""
+    a = np.array(axis, float)
+    u = np.array(up, float)
+    v = np.cross(a, u)
+    o = np.array(origin, float)
+    for run in runs:
+        normals = []                                                # (radial, axial) of each profile point
+        for i, (h, r) in enumerate(run):
+            h0, r0 = run[max(i - 1, 0)]
+            h1, r1 = run[min(i + 1, len(run) - 1)]
+            dh, dr = h1 - h0, r1 - r0
+            length = math.hypot(dh, dr) or 1.0
+            normals.append((dh / length, -dr / length))
+        rings = []
+        for i, ((h, r), (nr, na)) in enumerate(zip(run, normals)):
+            ring = []
+            for k in range(n + 1):
+                ph = 2 * math.pi * k / n
+                radial = math.cos(ph) * u + math.sin(ph) * v
+                ring.append(b.vert(o + a * h + radial * r, rect(region, k / n, i / max(len(run) - 1, 1)),
+                                   radial * nr + a * na))
+            rings.append(ring)
+        for r0, r1 in zip(rings, rings[1:]):
+            for k in range(n):
+                b.quad(r0[k], r0[k + 1], r1[k + 1], r1[k])
+
+
+def ribbed(b, origin, axis, up, r, h0, h1, region, n=24):
+    """A cylinder whose texture repeats once per side, for fine straight ribs along its axis."""
+    a = np.array(axis, float)
+    u = np.array(up, float)
+    v = np.cross(a, u)
+    o = np.array(origin, float)
+    for k in range(n):
+        quad = []
+        for kk, fu, h, fv in ((k, 0.0, h0, 1.0), (k + 1, 1.0, h0, 1.0), (k + 1, 1.0, h1, 0.0), (k, 0.0, h1, 0.0)):
+            ph = 2 * math.pi * kk / n
+            radial = math.cos(ph) * u + math.sin(ph) * v
+            quad.append(b.vert(o + a * h + radial * r, rect(region, fu, fv), radial))
+        b.quad(*quad)
 
 
 def face(b, corners, uvs, n):
@@ -306,6 +371,63 @@ def rounded_rect(y0, y1, r0, r1, r_in, r_out, seg_in=3, seg_out=6):
     return [(along(y), size(r)) for y, r in pts]
 
 
+def curved_hook(b, side, y0=106.0, y1=139.0, z_mid=23.3, half_w=1.9, low=3.2, high=5.4, rise=(0.26, 0.79),
+                r0=2.6, r1=3.6, n=64, around=10):
+    """The gold hook on the clamp box's side face (x = side * 7.9 mm in the plate's frame), along the knurled
+    band. Seen from above it is a straight bar of even width with round ends. Seen from the side its top is one
+    even curve, as on the prop's lever: level at the grip end, rising smoothly to its highest point near the
+    emitter end, with both ends rounded down to the box (radius r0 at the grip end, r1 at the emitter end).
+    The profile follows the printable model's switch (credited at the top), smoothed and scaled to the game;
+    `low` and `high` are its heights above the box at the grip end and at the top, in mm."""
+    face = side * 7.9
+    length = y1 - y0
+
+    def height(y):
+        u = (y - y0) / length
+        s = min(max((u - rise[0]) / (rise[1] - rise[0]), 0.0), 1.0)
+        h = low + (high - low) * s * s * (3 - 2 * s)                # level, an even rise, level
+        for d, r in ((y - y0, r0), (y1 - y, r1)):                   # round ends
+            if d < r:
+                h *= math.sqrt(max(0.0, 1 - (1 - d / r) ** 2))
+        return h
+
+    def width(y):
+        d = min(y - y0, y1 - y)
+        return half_w * math.sqrt(max(0.0, 1 - (1 - d / half_w) ** 2)) if d < half_w else half_w
+
+    def point(y, a):                                                # the surface, in mm
+        return (face + side * height(y) * math.sin(a), y, z_mid - width(y) * math.cos(a))
+
+    def normal(y, a):
+        e = 1e-3
+        ya, yb = max(y - e, y0), min(y + e, y1)
+        p, q = point(ya, a), point(yb, a)
+        dy = [(q[k] - p[k]) for k in range(3)]
+        p, q = point(y, a - e), point(y, a + e)
+        da = [(q[k] - p[k]) for k in range(3)]
+        nrm = [dy[1] * da[2] - dy[2] * da[1], dy[2] * da[0] - dy[0] * da[2], dy[0] * da[1] - dy[1] * da[0]]
+        if sum(v * v for v in nrm) < 1e-12:                         # the very tips: along the axis
+            return (0.0, -1.0 if y < (y0 + y1) / 2 else 1.0, 0.0)
+        out = side * math.sin(a)                                    # make it point away from the box
+        if nrm[0] * out + nrm[2] * -math.cos(a) < 0:
+            nrm = [-v for v in nrm]
+        return nrm
+
+    rings = []
+    for i in range(n + 1):                                          # closer together towards the ends
+        y = y0 + length * (1 - math.cos(math.pi * i / n)) / 2
+        t = (y - y0) / length
+        ring = []
+        for j in range(around + 1):
+            a = math.pi * j / around
+            px, py, pz = point(y, a)
+            ring.append(b.vert((size(px), along(py), size(pz)), rect("ring", t, j / around), normal(y, a)))
+        rings.append(ring)
+    for ra, rb in zip(rings, rings[1:]):
+        for j in range(around):
+            b.quad(ra[j], ra[j + 1], rb[j + 1], rb[j])
+
+
 # --- the hilt ------------------------------------------------------------------------------------------------
 def model(template):
     b = Builder(msh.outward_sign(template))
@@ -316,20 +438,32 @@ def model(template):
     for y0, y1, r0, r1, region in [
             (0, 93, 18.3, 18.3, "core"),                                     # chrome core under the grips
             (93, 96, 18.3, 20.4, "smooth"), (96, 107, 20.4, 20.4, "smooth"), (107, 110, 20.4, 19.6, "smooth"),
-            (110, 135, 19.6, 19.6, "knurl"),                                 # pyramid knurl
             (135, 138, 19.6, 20.4, "smooth"), (138, 148, 20.4, 20.4, "smooth"), (148, 151, 20.4, 18.3, "smooth"),
             (151, 233.4, 18.3, 18.3, "smooth")]:                             # plain tube
         lathe(b, along(y0), along(y1), size(r0), size(r1), region)
+    knurl_band(b, along(110), along(135), size(19.6))                 # pyramid knurl
     hood = rad(HOOD_DEG)
 
     def shell_top(th):
-        return along(254 + 19 * math.cos(th - hood))                         # 273 mm at the hood, 235 opposite
-    lathe(b, along(233.4), along(254), size(18.3), size(18.3), "smooth", ytop=shell_top)
-    lathe_inner(b, along(234), size(17.0), shell_top, "smooth")
-    rim(b, size(18.3), size(17.0), shell_top, "smooth")
-    cap(b, size(17.0), lambda x, z: along(234), (0, 1, 0), "black")         # emitter mount
-    lathe(b, along(234), along(258.8), size(13.5), size(13.5), "smooth")     # emitter cup
-    cap(b, size(13.5), lambda x, z: along(258.8), (0, 1, 0), "emit")
+        # the shell's cut: level across the hood (273 mm) for about 45 degrees either side, falling steeply
+        # round the sides and level again across the open front (235 mm), as on the printable model
+        d = abs((math.degrees(th - hood) + 180) % 360 - 180)
+        return along(234.95 + 38.1 * 0.5 * (1 - math.tanh((d - 91) / 13.5)))
+    lathe(b, along(233.4), along(254), size(18.3), size(18.3), "smooth", ytop=shell_top, n=SHELL_N)
+    lathe_inner(b, along(233.4), size(15.0), shell_top, "smooth", n=SHELL_N)   # a thick wall, 3.3 mm
+    rim(b, size(18.3), size(15.0), shell_top, "smooth", n=SHELL_N)
+    cap(b, size(15.0), lambda x, z: along(233.4), (0, 1, 0), "black", n=SHELL_N)   # floor of the shell
+    # the emitter: a narrower black mount (the dark half-ring seen through the opening), then a chrome cup
+    # flared at both ends with a waist between, and the nozzle inside it
+    lathe(b, along(233.4), along(239.71), size(11.9), size(11.9), "black", n=32)
+    cup = [[(239.71, 11.9), (239.71, 13.5)], [(239.71, 13.5), (242.55, 11.5)],
+           [(242.55, 11.5), (255.93, 11.5)], [(255.93, 11.5), (258.76, 13.5)],
+           [(258.76, 13.5), (258.76, 10.3)],
+           [(258.76, 10.3), (255.59, 8.0), (252.41, 7.1), (249.24, 6.4)]]
+    spool(b, (0, 0, 0), (0, 1, 0), (0, 0, 1),
+          [[(along(y), size(r)) for y, r in run] for run in cup], "smooth", n=32)
+    cap(b, size(6.4), lambda x, z: along(249.24), (0, 1, 0), "ring", n=32)      # brass floor of the nozzle
+    cylinder(b, (0, along(249.24), 0), (0, 1, 0), (0, 0, 1), size(2.3), 0.0, size(4.5), "ring", "ring")  # brass pin
 
     # six grips, centred 30, 90 and 150 degrees either side of the plate
     b.rot = rad(PLATE_DEG)
@@ -343,40 +477,67 @@ def model(template):
          [rect("plate", 1, 0), rect("plate", 1, 1), rect("plate", 0, 1), rect("plate", 0, 0)], (0, 0, 1))
     box(b, x0, x1, y0, y1, size(27.8), top, {"+x": "smooth", "-x": "smooth", "+y": "smooth", "-y": "smooth"})
 
-    # gold hook on the knurl
-    b.rot = rad(HOOK_DEG)
-    box(b, -size(8.8), size(8.8), along(108), along(136.5), size(19.0), size(24.8),
-        {"+z": "ring", "+x": "ring", "-x": "ring", "+y": "ring", "-y": "ring"})
+    # gold hook: a curved, rounded piece on the side face of the clamp box, level with the box
+    b.rot = rad(PLATE_DEG)
+    curved_hook(b, HOOK_SIDE)
 
     # two-pin ports either side of the button, the button, the knurled knob
     for angle in (PORT_DEG, PORT2_DEG):
         b.rot = rad(angle)
         cylinder(b, (0, along(225.5), size(15.5)), (0, 0, 1), (0, 1, 0), size(5.2), 0.0, size(3.0), "smooth", "port", n=10)
     b.rot = rad(BUTTON_DEG)
-    cylinder(b, (0, along(214.6), size(16.0)), (0, 0, 1), (0, 1, 0), size(9.5), 0.0, size(5.3), "smooth", "btn",
+    cylinder(b, (0, along(214.6), size(16.0)), (0, 0, 1), (0, 1, 0), size(9.5), 0.0, size(3.9), "smooth", "btn",
              n=14, stretch=1.2)
     b.rot = rad(KNOB_DEG)
-    cylinder(b, (0, along(220.7), size(16.0)), (0, 0, 1), (0, 1, 0), size(9.5), 0.0, size(6.4), "smooth", "smooth")
-    cylinder(b, (0, along(220.7), size(22.4)), (0, 0, 1), (0, 1, 0), size(8.5), 0.0, size(7.4), "knurl", "btn")
+    # the knob: a ribbed band against the hilt, then a smooth chrome collar with a bevelled rim, and the
+    # copper face set in it (heights from the axis; the body's surface is at 18.3 mm)
+    knob = (0, along(220.7), 0)
+    ribbed(b, knob, (0, 0, 1), (0, 1, 0), size(8.0), size(16.0), size(22.6), "knob")
+    collar = [[(22.6, 8.0), (22.6, 8.4)], [(22.6, 8.4), (25.0, 8.4)], [(25.0, 8.4), (25.6, 7.8)],
+              [(25.6, 7.8), (25.6, 5.9)]]
+    spool(b, knob, (0, 0, 1), (0, 1, 0), [[(size(h), size(r)) for h, r in run] for run in collar], "smooth",
+          n=24)
+    cylinder(b, (0, along(220.7), size(25.3)), (0, 0, 1), (0, 1, 0), size(6.2), 0.0, size(0.6), "smooth", "btn",
+             n=16)
 
-    # clip in front of the emitter: a base the full length of the clip (no dip in its outline) and two
-    # prongs with rounded tips, side by side with a 3 mm gap
+    # clip in front of the emitter: two ears side by side with a 3 mm gap, each outlined like the prop's
+    # clip (the printable model's, held to the shorter reach chosen in game): a straight top edge with a
+    # raised shoulder at the body, a fully rounded outer end, and underneath a step and a sloping brace
+    # back down to the body. Each ear is two convex pieces: the rounded tab, and the base with the brace.
     b.rot = rad(CLIP_DEG)
     w = size(7.9)
-    base = [(along(242.9), size(17.0)), (along(261.1), size(17.0)), (along(261.1), size(28.5)), (along(242.9), size(28.5))]
-    prism(b, base, w, body_r=size(17.0), u_band=(.20, .26))
     gap = size(3.0)
     prong = (w - gap / 2) / 2
+    top, bottom, reach = 261.25, 245.4, 37.0
+    end_r = (top - bottom) / 2
+    tab = [(bottom, 20.7), (top, 20.7)] + arc((top + bottom) / 2, reach - end_r, end_r, 0, 180, 12)
+    base = [(240.0, 17.0), (263.5, 17.0), (263.5, 19.9), (top, 22.2), (bottom, 25.6), (243.0, 25.6),
+            (240.0, 18.3)]
     for side in (-1, 1):
-        prism(b, rounded_rect(242.9, 261.1, 27.0, 37.0, 2.0, 4.0), prong, u_band=(.20, .26),
-              x_offset=side * (gap / 2 + prong))
+        for outline in (tab, base):
+            prism(b, [(along(y), size(r)) for y, r in outline], prong, body_r=size(17.0), u_band=(.20, .26),
+                  x_offset=side * (gap / 2 + prong))
 
     # black belt-clip knob between the grips
     b.rot = rad(BELT_KNOB_DEG)
-    cylinder(b, (0, along(38.1), size(15.0)), (0, 0, 1), (0, 1, 0), size(9.5), 0.0, size(4.3), "black", "black")
+    # a black spool, 19 mm across, standing a few mm proud of the grips: a base flange, a concave waist, an
+    # outer flange with a chamfered rim, and a dished face with a screw in the middle (heights from the axis)
+    waist = [(24.0 + 2.4 * s, 7.2 - 1.1 * math.sin(math.pi * s)) for s in (i / 8 for i in range(9))]
+    dish = [(29.2 - 0.8 * (1 - (r - 1.8) / 3.2) ** 2, r) for r in (5.0 - 3.2 * i / 6 for i in range(7))]
+    runs = [[(17.5, 9.5), (24.0, 9.5)],                                   # base flange
+            [(24.0, 9.5), (24.0, 7.2)], waist, [(26.4, 7.2), (26.4, 9.5)],   # waist
+            [(26.4, 9.5), (28.5, 9.5)], [(28.5, 9.5), (29.2, 8.8)],          # outer flange and its rim
+            [(29.2, 8.8), (29.2, 5.0)], dish,                                 # face, dish
+            [(28.4, 1.8), (28.8, 1.2)], [(28.8, 1.2), (28.8, 0.0)]]           # screw head
+    spool(b, (0, along(38.1), 0), (0, 0, 1), (0, 1, 0),
+          [[(size(h), size(r)) for h, r in run] for run in runs], "black")
 
+    # drop vertices no triangle uses (the zero-width tips of the hook's rounded ends)
+    used = sorted({i for t in b.T for i in t})
+    new_index = {old: new for new, old in enumerate(used)}
     m = msh.Mesh().from_template(template)
-    m.verts, m.tris = b.V, b.T
+    m.verts = [b.V[i] for i in used]
+    m.tris = [tuple(new_index[i] for i in t) for t in b.T]
     return m
 
 
@@ -411,14 +572,27 @@ def paint():
     put("smooth", np.stack([lum, lum, lum + 2], 2))
 
     x, y, w, h, X, Y = grid("knurl")                                         # square-pyramid knurl
-    u = ((X + Y) / 22.0) % 1.0
-    v = ((X - Y) / 22.0) % 1.0
-    height = 1 - np.maximum(np.abs(2 * u - 1), np.abs(2 * v - 1))
-    facet = np.where(np.abs(2 * u - 1) > np.abs(2 * v - 1), (1 - 2 * u), (1 - 2 * v)) * .5
-    edge = np.clip(np.minimum(Y, h - 1 - Y) / 14., 0, 1)
-    lum = np.clip(150 + 20 * np.sin(2 * np.pi * X / w * 2 + .9) + (46 * (height - .5) + 30 * facet) * edge
-                  + rng.normal(0, 2, (h, w)), 45, 235)
+    # straight rows and columns of studs, one stud per 4x4 texel block of the final texture, so DXT1
+    # compression keeps them crisp; each stud has four faces lit differently (light from the top left)
+    u = (X % 16) / 16.0
+    v = (Y % 16) / 16.0
+    du, dv = u - .5, v - .5
+    vertical = np.abs(dv) >= np.abs(du)
+    face = np.where(vertical, np.where(dv < 0, 222.0, 92.0), np.where(du < 0, 186.0, 128.0))
+    tip = np.maximum(np.abs(du), np.abs(dv)) < .08
+    face = np.where(tip, 245.0, face)
+    groove = np.maximum(np.abs(du), np.abs(dv)) > .46
+    face = np.where(groove, 70.0, face)
+    edge = np.clip(np.minimum(Y, h - 1 - Y) / 8., 0, 1)
+    lum = np.clip(face * edge + (150 + 18 * np.sin(2 * np.pi * X / w * 2 + .9)) * (1 - edge)
+                  + 10 * np.sin(2 * np.pi * X / w * 2 + .9) + rng.normal(0, 1.5, (h, w)), 40, 248)
     put("knurl", np.stack([lum, lum, lum + 2], 2))
+
+    x, y, w, h, X, Y = grid("knob")                                          # the knob's straight ribs
+    phase = ((X + .5) / (w / 2.0)) % 1.0                                     # two ribs across the region
+    crest = np.sin(np.pi * phase) ** 1.5
+    lum = np.clip(85 + 145 * crest + 12 * np.cos(2 * np.pi * Y / h) + rng.normal(0, 2, (h, w)), 45, 238)
+    put("knob", np.stack([lum, lum, lum + 2], 2))
 
     x, y, w, h, X, Y = grid("black")                                         # rubber grips
     lum = 22 + 5 * np.sin(2 * np.pi * X / 24.) + 3 * np.sin(2 * np.pi * Y / 90.) + rng.normal(0, 1.2, (h, w))
